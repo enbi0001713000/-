@@ -167,4 +167,31 @@ h3{margin:0 0 10px;font-size:16px}
   white-space:pre-wrap;
   line-height:1.7;
 }
+
+.historyList{
+  margin-top:10px;
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+.historyItem{
+  border:1px solid var(--line);
+  background:#fff;
+  border-radius:14px;
+  padding:10px 12px;
+}
+.historyItem .top{
+  display:flex;
+  justify-content:space-between;
+  gap:10px;
+  flex-wrap:wrap;
+  font-weight:800;
+}
+.historyItem .meta{
+  margin-top:6px;
+  color:var(--muted);
+  font-size:12px;
+  line-height:1.6;
+}
+
 .footer{font-size:12px;margin-top:10px;text-align:center}
