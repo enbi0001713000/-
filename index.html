@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>義務教育 5教科クイズ（25問）</title>
   <link rel="stylesheet" href="styles.css" />
+  <link rel="manifest" href="manifest.json">
 </head>
 <body>
   <header class="topbar">
@@ -28,7 +29,7 @@
     <section class="card" id="unlockCard">
       <h2>合言葉でロック解除</h2>
       <p class="muted">
-        公開リンクで遊べる版です。合言葉を入力すると開始できます（ソースに合言葉は表示されにくい形で管理）。
+        公開リンクで遊べる版です。合言葉を入力すると開始できます。
       </p>
       <div class="row">
         <input id="passInput" class="input" type="password" placeholder="合言葉を入力" autocomplete="off" />
@@ -47,113 +48,4 @@
         <div class="subcard">
           <h3>学年帯</h3>
           <label class="chk"><input type="checkbox" class="tagLevel" value="小" checked /> 小</label>
-          <label class="chk"><input type="checkbox" class="tagLevel" value="中" checked /> 中</label>
-        </div>
-
-        <div class="subcard">
-          <h3>難易度</h3>
-          <label class="chk"><input type="checkbox" class="tagDiff" value="基礎" checked /> 基礎</label>
-          <label class="chk"><input type="checkbox" class="tagDiff" value="標準" checked /> 標準</label>
-          <label class="chk"><input type="checkbox" class="tagDiff" value="発展" checked /> 発展</label>
-        </div>
-      </div>
-
-      <div class="row">
-        <label class="chk">
-          <input id="avoidSimilar" type="checkbox" checked />
-          似たパターンの連発を避ける（おすすめ）
-        </label>
-        <label class="chk">
-          <input id="strictUnique" type="checkbox" checked />
-          25問内の問題かぶり禁止（おすすめ）
-        </label>
-      </div>
-
-      <div class="row">
-        <label class="chk">
-          <input id="mixDifficulty" type="checkbox" checked />
-          25問でも難易度比率（2:5:3）をなるべく維持
-        </label>
-      </div>
-    </section>
-
-    <!-- Quiz -->
-    <section class="card" id="quizCard" hidden>
-      <div class="quiz-head">
-        <div class="qmeta">
-          <div id="qIndex" class="qindex">Q1 / 25</div>
-          <div id="qTags" class="tags"></div>
-        </div>
-        <div class="timer">
-          <div class="timerLabel">この問題の経過</div>
-          <div id="timerNow" class="timerNow">0.0s</div>
-        </div>
-      </div>
-
-      <div id="qText" class="qtext"></div>
-
-      <div id="choices" class="choices"></div>
-
-      <div class="nav">
-        <button id="btnPrev" class="btn" disabled>前へ</button>
-        <button id="btnNext" class="btn primary">次へ</button>
-      </div>
-
-      <div class="progress">
-        <div id="progressBar" class="bar"></div>
-      </div>
-    </section>
-
-    <!-- Results -->
-    <section class="card" id="resultCard" hidden>
-      <div class="resultHead">
-        <div>
-          <h2>結果</h2>
-          <div id="scoreLine" class="scoreLine"></div>
-        </div>
-        <div class="row">
-          <button id="btnCopy" class="btn">結果をコピー</button>
-          <button id="btnBackToTop" class="btn">トップへ戻る</button>
-        </div>
-      </div>
-
-      <div class="grid2">
-        <div class="subcard">
-          <h3>5教科レーダー</h3>
-          <canvas id="radar" width="520" height="420"></canvas>
-          <div class="muted small">※正答率（%）を可視化</div>
-        </div>
-
-        <div class="subcard">
-          <h3>分析（AI文章）</h3>
-          <div id="aiAnalysis" class="analysisText"></div>
-        </div>
-      </div>
-
-      <div class="subcard">
-        <h3>内訳</h3>
-        <div id="breakdown" class="breakdown"></div>
-      </div>
-
-      <div class="subcard">
-        <h3>解説（番号を押す）</h3>
-        <div id="explainList" class="explainList"></div>
-      </div>
-    </section>
-
-    <footer class="footer muted">
-      <div>※オフライン対応（Service Worker）。更新が反映されない場合は強制リロード（Ctrl+Shift+R）を。</div>
-    </footer>
-  </main>
-
-  <script src="bank.js"></script>
-  <script src="app.js"></script>
-  <script>
-    if ("serviceWorker" in navigator) {
-      window.addEventListener("load", () => {
-        navigator.serviceWorker.register("./sw.js").catch(() => {});
-      });
-    }
-  </script>
-</body>
-</html>
+          <label class="chk"><input type="checkbox" class="tagLevel" value="中" checked /> 中</l
