@@ -137,8 +137,23 @@
     if (!window.SchoolQuizBank) {
       unlockMsg.textContent = "bank.js の読み込みに失敗しています。";
       unlockMsg.style.color = "#b91c1c";
+      btnNew.disabled = true;
       return;
     }
+
+    // ===== デバッグパッチ（ここから） =====
+    // bank.jsの品質チェック（不正があれば開始させない）
+    try {
+      const test = window.SchoolQuizBank.buildAll(30);
+      if (!Array.isArray(test) || !test.length) throw new Error("bank build failed");
+    } catch (e) {
+      console.error(e);
+      alert("問題バンクに不整合があります。開発者ツール(Console)でエラーを確認してください。");
+      btnNew.disabled = true;
+      return;
+    }
+    // ===== デバッグパッチ（ここまで） =====
+
     state.bankAll = window.SchoolQuizBank.buildAll(500);
   }
 
@@ -204,13 +219,13 @@
     }
 
     const seen = new Set();
-    const uniq = [];
+    const uniqArr = [];
     for (const q of out) {
       if (seen.has(q.key)) continue;
       seen.add(q.key);
-      uniq.push(q);
+      uniqArr.push(q);
     }
-    return uniq;
+    return uniqArr;
   }
 
   function buildQuiz() {
@@ -432,7 +447,6 @@
     renderExplain();
     renderAIText();
 
-    // 履歴保存 → 表示は「開いた時」にまとめて更新
     saveHistorySnapshot();
     if (historyPanel && !historyPanel.hidden) renderHistoryPanel();
 
@@ -817,11 +831,9 @@
 
     if (!hist.length) return;
 
-    // 全体平均（履歴全回の acc / avgTime）
     const overallAcc = mean(hist.map(h => h.acc));
     const overallAvgTime = mean(hist.map(h => h.avgTime));
 
-    // 教科別平均
     const per = {};
     for (const s of SUBJECTS) {
       const accArr = hist.map(h => (h.sub && h.sub[s] ? h.sub[s].acc : null)).filter(v => typeof v === "number");
@@ -882,7 +894,6 @@
 
     const last = hist[hist.length - 1];
 
-    // 推移：直近3回 vs その前3回
     const last3 = hist.slice(-3);
     const prev3 = hist.slice(-6, -3);
     const avgAcc = (a) => a.length ? mean(a.map(x => x.acc)) : null;
@@ -898,7 +909,6 @@
       trend = "データ蓄積中";
     }
 
-    // 弱め教科（履歴平均）
     const perAvg = SUBJECTS.map(s => {
       const accArr = hist.map(h => h.sub?.[s]?.acc).filter(v => typeof v === "number");
       return { s, acc: accArr.length ? mean(accArr) : 1 };
@@ -912,7 +922,6 @@
       `推移：${trend}\n` +
       `弱めの教科（履歴平均）：${weakLine || "特になし"}`;
 
-    // 最近10回の一覧
     historyList.innerHTML = "";
     const show = hist.slice(-10).reverse();
     for (const h of show) {
@@ -934,7 +943,6 @@
       historyList.appendChild(div);
     }
 
-    // 平均カード＆グラフ
     renderHistoryAverages(hist);
     drawHistoryChart(hist);
   }
@@ -985,7 +993,6 @@
 
   // ===== Init =====
   loadUnlock();
-  // 初回は閉じている想定。開いた時に最新を描画するが、内部状態は整えておく。
   renderHistoryPanel();
 
 })();
