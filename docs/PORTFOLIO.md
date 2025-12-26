@@ -51,4 +51,4 @@ GitHub Pagesで公開し、リンクから即プレイできる形にしまし�
 
 ## 9. リンク・リポジトリ
 - 公開URL：https://enbi0001713000.github.io/-/
-- GitHub：
+- GitHub：enbi0001713000/-
