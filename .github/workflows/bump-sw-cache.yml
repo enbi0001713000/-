@@ -9,10 +9,8 @@ permissions:
 
 jobs:
   build-sw:
-    # Actions自身のコミットで無限ループしない保険
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
 
@@ -25,6 +23,12 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+
           git add sw.js
-          git commit -m "chore: bump sw cache ($SHA)" || echo "No changes"
-          git push
+          git diff --cached --quiet && echo "No changes" && exit 0
+
+          SHA=$(git rev-parse --short HEAD)
+          git commit -m "chore: bump sw cache ($SHA)"
+
+          git pull --rebase origin main
+          git push origin main
