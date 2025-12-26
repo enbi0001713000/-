@@ -110,6 +110,22 @@
   /* =========================
    * bank.js ロード
    * ========================= */
+  // bank.js 側で uid/patternGroup を付けるが、古いbankでも動くよう保険
+  function normalizeText(s) {
+    return String(s ?? "")
+      .normalize("NFKC")
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+  function makeUid(q) {
+    const sub = normalizeText(q?.sub);
+    const qt = normalizeText(q?.q);
+    const choices = Array.isArray(q?.c) ? q.c.map(normalizeText).join("||") : "";
+    const a = Number.isFinite(q?.a) ? q.a : -1;
+    return `${sub}::${qt}::${choices}::a=${a}`;
+  }
+
   function loadBank() {
     let bank = null;
     if (Array.isArray(window.BANK)) bank = window.BANK;
@@ -117,10 +133,12 @@
     if (!bank && typeof window.buildBank === "function") bank = window.buildBank();
     if (!Array.isArray(bank)) bank = [];
 
-    // key 付与（無ければ）
+    // key/uid/patternGroup 付与（無ければ）
     bank.forEach((q, i) => {
       if (!q) return;
       if (!q.key) q.key = `${q.sub}|${q.level}|${q.diff}|${q.pattern || "p"}|${(q.q || "").slice(0, 24)}|${i}`;
+      if (!q.patternGroup) q.patternGroup = q.pattern || "p";
+      if (!q.uid) q.uid = makeUid(q);
     });
 
     return bank;
@@ -138,7 +156,7 @@
     shownAt: 0,
     timer: null,
     graded: false,
-    explainActive: null, // ★追加：解説番号のactive表示用
+    explainActive: null, // 解説番号のactive表示用
   };
 
   /* =========================
@@ -231,7 +249,7 @@
   }
 
   /* =========================
-   * 出題（重複禁止＋パターン偏り回避＋不足時フォールバック）
+   * 出題（重複禁止＋テンプレ偏り回避＋不足時フォールバック）
    * ========================= */
   function shuffle(a) {
     for (let i = a.length - 1; i > 0; i--) {
@@ -241,18 +259,23 @@
     return a;
   }
 
-  function scoreCandidate(q, usedKeys, patternCount, opts) {
+  function scoreCandidate(q, usedUids, patternGroupCount, opts) {
     let s = 0;
-    if (opts.noDup && usedKeys.has(q.key)) s += 1e9;
+
+    // noDup：内容ベース（uid）重複を禁止
+    if (opts.noDup && usedUids.has(q.uid)) s += 1e9;
+
+    // avoidSimilar：pattern ではなく patternGroup で偏りを抑える
     if (opts.avoidSimilar) {
-      const p = q.pattern || "p";
-      s += (patternCount.get(p) || 0) * 10;
+      const g = q.patternGroup || q.pattern || "p";
+      s += (patternGroupCount.get(g) || 0) * 10;
     }
+
     s += Math.random();
     return s;
   }
 
-  function choose5ForSubject(subject, grades, diffs, opts, usedKeys, patternCount) {
+  function choose5ForSubject(subject, grades, diffs, opts, usedUids, patternGroupCount) {
     // 基本候補
     let cands = BANK.filter(q =>
       q && q.sub === subject &&
@@ -298,14 +321,19 @@
 
       let best = null, bestScore = Infinity;
       for (const q of candidates) {
-        const s = scoreCandidate(q, usedKeys, patternCount, opts);
+        const s = scoreCandidate(q, usedUids, patternGroupCount, opts);
         if (s < bestScore) { bestScore = s; best = q; }
       }
 
       chosen.push(best);
-      usedKeys.add(best.key);
-      patternCount.set(best.pattern || "p", (patternCount.get(best.pattern || "p") || 0) + 1);
-      pool = pool.filter(q => q.key !== best.key);
+      usedUids.add(best.uid);
+
+      const g = best.patternGroup || best.pattern || "p";
+      patternGroupCount.set(g, (patternGroupCount.get(g) || 0) + 1);
+
+      // 1) 同一オブジェクト再抽選は常に防ぐ（key）
+      // 2) noDup 有効なら内容ベースでも排除（uid）
+      pool = pool.filter(q => q.key !== best.key && (!opts.noDup || q.uid !== best.uid));
     }
 
     return chosen;
@@ -316,12 +344,12 @@
     const diffs = getSelectedDiffs();
     const opts = getOptions();
 
-    const usedKeys = new Set();
-    const patternCount = new Map();
+    const usedUids = new Set();
+    const patternGroupCount = new Map();
     const quiz = [];
 
     for (const sub of SUBJECTS) {
-      quiz.push(...choose5ForSubject(sub, grades, diffs, opts, usedKeys, patternCount));
+      quiz.push(...choose5ForSubject(sub, grades, diffs, opts, usedUids, patternGroupCount));
     }
     shuffle(quiz);
 
@@ -539,7 +567,7 @@
     const lines = [];
     const speedRatio = medianMs ? avgTime / medianMs : 1;
 
-    // ★修正：avgTime は ms なので *1000 しない
+    // avgTime は ms（*1000しない）
     lines.push(`総合：正答率 ${fmtPct(totalAcc)}、平均解答時間 ${fmtSec(avgTime)}（目安）。`);
 
     if (speedRatio < 0.85) {
@@ -587,7 +615,6 @@
     if (el.resultSummary()) {
       el.resultSummary().innerHTML = `
         <div class="scoreBig">${res.correct} / ${TOTAL_Q}（${fmtPct(res.acc)}）</div>
-        <!-- ★修正：avgTime は ms なので *1000 しない -->
         <div class="muted">合計時間：${fmtSec(res.totalTime)}　平均：${fmtSec(res.avgTime)}</div>
       `;
     }
@@ -671,7 +698,7 @@
     show(el.explainBox());
     el.explainBox().scrollIntoView({ behavior: "smooth", block: "start" });
 
-    // ★active 更新（番号一覧の active 表示だけ更新）
+    // active 表示更新（番号一覧の見た目だけ更新）
     state.explainActive = idx;
     if (el.explainList()) {
       el.explainList().querySelectorAll(".mini").forEach((btn, i) => {
