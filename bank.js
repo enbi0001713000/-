@@ -2,6 +2,7 @@
   - 5教科が必ず混在するBANKを生成
   - 4択の品質（空/重複/メタ文言）を除外
   - 教科別最低数を満たすまで自動追い足し（不足事故を防止）
+  - 追加: uid（内容ベース重複判定） / patternGroup（テンプレ群）
 */
 
 (function () {
@@ -32,6 +33,24 @@
 
   const toKey = (q, i) =>
     q.key || `${q.sub}|${q.level}|${q.diff}|${q.pattern || "p"}|${(q.q || "").slice(0, 40)}|${i}`;
+
+  // 内容ベース重複判定用 uid
+  function normalizeText(s) {
+    return String(s ?? "")
+      .normalize("NFKC")
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function makeUid(q) {
+    const sub = normalizeText(q?.sub);
+    const qt = normalizeText(q?.q);
+    const choices = Array.isArray(q?.c) ? q.c.map(normalizeText).join("||") : "";
+    const a = Number.isFinite(q?.a) ? q.a : -1;
+    // level/diff は含めない：同内容なら重複として弾く
+    return `${sub}::${qt}::${choices}::a=${a}`;
+  }
 
   function isBadChoiceText(s) {
     const t = String(s ?? "").trim();
@@ -109,6 +128,7 @@
         level: "中",
         diff: "標準",
         pattern: "vocab",
+        patternGroup: "ja_vocab",
         q: "「一目瞭然」の意味として最も近いものは？",
         c: ["見ただけではっきり分かる", "一度見ても覚えられない", "目で見るのが難しい", "見ない方がよい"],
         a: 0,
@@ -121,6 +141,7 @@
         level: "中",
         diff: "標準",
         pattern: "function",
+        patternGroup: "math_linear",
         q: "一次関数 y = 2x + 1 の y切片は？",
         c: ["1", "2", "-1", "0"],
         a: 0,
@@ -133,6 +154,7 @@
         level: "中",
         diff: "標準",
         pattern: "grammar",
+        patternGroup: "eng_present",
         q: "(　)に入る最も適切な語は？ I (   ) to school every day.",
         c: ["go", "goes", "went", "going"],
         a: 0,
@@ -145,6 +167,7 @@
         level: "中",
         diff: "標準",
         pattern: "calc",
+        patternGroup: "sci_density",
         q: "密度2.0g/cm³の物体の体積が30cm³のとき、質量は？",
         c: ["60g", "15g", "32g", "90g"],
         a: 0,
@@ -157,6 +180,7 @@
         level: "中",
         diff: "標準",
         pattern: "civics",
+        patternGroup: "soc_civics",
         q: "国会が法律を定める働きを何という？",
         c: ["立法", "行政", "司法", "自治"],
         a: 0,
@@ -208,6 +232,7 @@
           level: "中",
           diff: "標準",
           pattern: "grammar",
+          patternGroup: "eng_third_person",
           q: `(　)に入る語は？ ${v.subj} (   ) ${v.tail}.`,
           c,
           a,
@@ -225,6 +250,7 @@
           level: "中",
           diff: "標準",
           pattern: "grammar",
+          patternGroup: "eng_past",
           q: `(　)に入る語は？ ${v.subj} (   ) ${v.tail} yesterday.`,
           c,
           a,
@@ -242,6 +268,7 @@
           level: "中",
           diff: "標準",
           pattern: "grammar",
+          patternGroup: "eng_preposition",
           q: `(　)に入る語は？ We meet (   ) ${p.hint}.`,
           c,
           a,
@@ -265,6 +292,7 @@
           level: "中",
           diff: ad.diff,
           pattern: "grammar",
+          patternGroup: "eng_comparative",
           q: `(　)に入る語は？ This book is (   ) than that one.`,
           c,
           a,
@@ -309,6 +337,7 @@
         level: "中",
         diff: "標準",
         pattern: "reading",
+        patternGroup: "eng_reading_connector",
         q: `英文："${it.sent}"\n質問：${it.ask}`,
         c,
         a,
@@ -341,6 +370,7 @@
         level: "中",
         diff: "標準",
         pattern: "vocab",
+        patternGroup: "ja_vocab",
         q: `「${word}」の意味として最も近いものは？`,
         c,
         a,
@@ -368,6 +398,7 @@
         level: "中",
         diff: (i % 6 === 0 ? "発展" : "標準"),
         pattern: "function",
+        patternGroup: "math_linear",
         q: `一次関数 y = ${aCoef}x ${bConst >= 0 ? "+ " + bConst : "- " + Math.abs(bConst)} において、x=${x} のとき y は？`,
         c,
         a,
@@ -393,6 +424,7 @@
           level: "中",
           diff: "標準",
           pattern: "calc",
+          patternGroup: "sci_density",
           q: `密度${d}g/cm³の物体の体積が${v}cm³のとき、質量は？`,
           c,
           a,
@@ -410,6 +442,7 @@
           level: "中",
           diff: "発展",
           pattern: "physics",
+          patternGroup: "sci_ohm",
           q: `抵抗${R}Ω、電流${I}Aのとき、電圧は？（V=IR）`,
           c,
           a,
@@ -441,6 +474,7 @@
         level: "中",
         diff: "標準",
         pattern: "geo",
+        patternGroup: "soc_time",
         q: `経度が${step}°${dir}へ移動すると、時刻は一般に？`,
         c,
         a,
@@ -468,6 +502,7 @@
         level: "中",
         diff: "標準",
         pattern: "civics",
+        patternGroup: "soc_civics",
         q: it.q,
         c,
         a,
@@ -495,8 +530,12 @@
     bank.push(...genSocialTime(160));
     bank.push(...genSocialCivics(160));
 
-    // key付与 & 検品
-    bank.forEach((q, i) => (q.key = toKey(q, i)));
+    // key/uid/patternGroup 付与 & 検品
+    bank.forEach((q, i) => {
+      q.key = toKey(q, i);
+      if (!q.patternGroup) q.patternGroup = q.pattern || "p";
+      if (!q.uid) q.uid = makeUid(q);
+    });
     bank = bank.filter(validateQuestion);
 
     // 教科別に不足していれば追い足し（不足事故を潰す）
@@ -509,31 +548,4 @@
       let more = [];
       if (sub === "英語") more = genEnglishGrammar(need + 80).concat(genEnglishReading(need + 40));
       if (sub === "国語") more = genJapaneseVocab(need + 120);
-      if (sub === "数学") more = genMathLinear(need + 120);
-      if (sub === "理科") more = genScienceCalc(need + 120);
-      if (sub === "社会") more = genSocialTime(need + 80).concat(genSocialCivics(need + 80));
-
-      const start = bank.length;
-      more.forEach((q, i) => (q.key = toKey(q, start + i)));
-      bank.push(...more);
-      bank = bank.filter(validateQuestion);
-    };
-
-    SUBJECTS.forEach(topUp);
-
-    // ここで “英語だけ” など異常なら即分かるよう統計出力
-    const stats = {};
-    SUBJECTS.forEach((s) => (stats[s] = countSub(s)));
-    console.log("[BANK stats]", stats, "total:", bank.length);
-
-    // 安全装置：教科が1つしかないなら明確にエラーを出す（調査を楽にする）
-    const uniqSubs = [...new Set(bank.map((x) => x.sub))];
-    if (uniqSubs.length < 3) {
-      console.warn("[BANK] subjects seem abnormal:", uniqSubs);
-    }
-
-    return bank;
-  }
-
-  window.BANK = buildBank();
-})();
+      if (sub
