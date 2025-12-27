@@ -382,7 +382,7 @@
   {"sub":"数学","level":"小","diff":"標準","patternGroup":"math_calc_fraction","pattern":"calc","q":"1/2 − 1/3 の値は？（約分して答える）","c":["2/6","3/8","1/6","2/5"],"a":2,"exp":"通分してから分子を引き、最後に約分する。"},
   {"sub":"数学","level":"小","diff":"基礎","patternGroup":"math_calc_fraction","pattern":"calc","q":"1/10 + 3/10 の値は？（約分して答える）","c":["1/5","4/10","5/10","2/5"],"a":0,"exp":"分母が同じなので分子を足し、必要なら約分する。"},
   {"sub":"数学","level":"小","diff":"基礎","patternGroup":"math_calc_fraction","pattern":"calc","q":"3/6 + 4/6 の値は？（約分して答える）","c":["1/1","7/6","8/7","6/5"],"a":1,"exp":"分母が同じなので分子を足し、必要なら約分する。"},
-  {"sub":"数学","level":"小","diff":"標準","patternGroup":"math_calc_fraction","pattern":"calc","q":"2/5 − 1/3 の値は？（約分して答える）","c":["1/15","2/8","3/10","2/15"],"a":3,"exp":"通分してから分子を引き、最後に約分する。"},
+  {"sub":"数学","level":"小","diff":"標準","patternGroup":"math_calc_fraction","pattern":"calc","q":"2/5 − 1/3 の値は？（約分して答える）","c":["1/15","2/8","3/10","2/15"],"a":0,"exp":"通分してから分子を引き、最後に約分する。"},
   {"sub":"数学","level":"中","diff":"発展","patternGroup":"math_calc_fraction","pattern":"calc","q":"(6/10 + 3/9) − 2/12 の値は？（約分して答える）","c":["4/5","23/40","23/24","7/9"],"a":1,"exp":"かっこの中を先に計算し、通分して処理する。"},
   {"sub":"数学","level":"中","diff":"基礎","patternGroup":"math_calc_fraction","pattern":"calc","q":"9.6 + 1.7 の値は？","c":["11.1","11.4","11.3","11.2"],"a":2,"exp":"小数点の位をそろえて足し算する。"},
   {"sub":"数学","level":"小","diff":"基礎","patternGroup":"math_calc_fraction","pattern":"calc","q":"1/8 + 6/8 の値は？（約分して答える）","c":["6/8","3/4","7/8","1/1"],"a":2,"exp":"分母が同じなので分子を足し、必要なら約分する。"},
@@ -1438,5 +1438,6 @@
 
   window.BANK = buildBank();
 })();
+
 
 
