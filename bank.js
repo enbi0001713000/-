@@ -1,36 +1,68 @@
-/* bank.js (Hard/Variety Edition)
- * 目的：
- * - 5教科すべてを含む window.BANK を生成
- * - 4択品質・メタ選択肢排除・重複（uid）排除
- * - 難易度を引き上げ、テンプレ偏りを抑える（patternGroupを細分化）
- * - 計算問題の公式ヒントは「問題文から削除」し、expにのみ残す
- *
- * schema（1問）:
- * {
- *   sub: "国語"|"数学"|"英語"|"理科"|"社会",
- *   level: "小"|"中",
- *   diff: "基礎"|"標準"|"発展",
- *   patternGroup: string,
- *   pattern: string,
- *   q: string,
- *   c: [string,string,string,string],
- *   a: 0|1|2|3,
- *   exp: string
- * }
- */
+/* bank.js（全文置き換え版：理社さらに難化／数学も思考系へ強化）
+  目的：
+  - 5教科（国語/数学/英語/理科/社会）を自動生成
+  - 理科・社会：資料読解・条件整理・因果推論を厚めにして難化
+  - 数学：中学受験～高校受験の「考えさせる」典型（場合の数・規則性・整数・図形比・条件付き確率など）
+  - patternGroup を細分化して同型連発を抑制（app.js 側の avoidSimilar が効く前提）
+  - 問題文に公式ヒント（15°=1h, V=IR, 力/面積 等）を直接書かない（exp側にのみ根拠）
+  - 4択品質：空/重複/メタ選択肢排除、aは0-3、c[a]が正答として妥当
+
+  使い方：
+  - このファイルを bank.js として丸ごと置き換え
+  - Pages更新 → スーパーリロード → console の [BANK stats] を確認
+*/
 
 (function () {
   "use strict";
 
+  /* =========================
+   * 定数
+   * ========================= */
   const SUBJECTS = ["国語", "数学", "英語", "理科", "社会"];
   const GRADES = ["小", "中"];
   const DIFFS = ["基礎", "標準", "発展"];
 
-  /* =========================
-   * Utils
-   * ========================= */
-  const pick = (arr, i) => arr[i % arr.length];
+  // 生成量（ランタイムで生成される。ファイル自体は肥大しない）
+  // ※理科・社会・数学は難化＆多様化のため増量
+  const TARGET = {
+    国語: 320,
+    数学: 520,
+    英語: 360,
+    理科: 520,
+    社会: 520,
+  };
 
+  // 教科別の最低保証（不足事故の保険）
+  const MIN_PER_SUBJECT = 220;
+
+  /* =========================
+   * 乱数（再現性のある擬似乱数）
+   * ========================= */
+  function mulberry32(seed) {
+    let a = seed >>> 0;
+    return function () {
+      a |= 0;
+      a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  const rint = (rnd, n) => (rnd() * n) | 0;
+  const pick = (rnd, arr) => arr[rint(rnd, arr.length)];
+
+  function shuffleWith(rnd, arr) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = (rnd() * (i + 1)) | 0;
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  /* =========================
+   * 文字正規化・uid
+   * ========================= */
   function normalizeText(s) {
     return String(s ?? "")
       .normalize("NFKC")
@@ -43,32 +75,85 @@
     const sub = normalizeText(q?.sub);
     const qt = normalizeText(q?.q);
     const choices = Array.isArray(q?.c) ? q.c.map(normalizeText).join("||") : "";
-    const a = Number.isInteger(q?.a) ? q.a : -1;
+    const a = Number.isFinite(q?.a) ? q.a : -1;
     return `${sub}::${qt}::${choices}::a=${a}`;
   }
 
+  /* =========================
+   * 4択生成（ユニーク保証）
+   * ========================= */
   function isBadChoiceText(s) {
     const t = String(s ?? "").trim();
     if (!t) return true;
-    if (t === "-" || t === "—" || t === "–") return true;
 
-    // 禁止メタ
+    // メタ選択肢（避ける）
     const banned = [
-      "どれでもない",
-      "上のいずれでもない",
       "不明",
       "わからない",
-      "分からない",
+      "どれでもない",
+      "上のいずれでもない",
       "該当なし",
-      "なし",
-      "未定",
-      "上記以外",
-      "その他",
+      "全部",
+      "すべて",
+      "この中にはない",
+      "not mentioned",
+      "not stated",
     ];
-    if (banned.includes(t)) return true;
+    const tl = t.toLowerCase();
+    if (banned.includes(t) || banned.includes(tl)) return true;
+
     return false;
   }
 
+  function uniqKeep(arr) {
+    const out = [];
+    const seen = new Set();
+    for (const x of arr) {
+      const t = String(x ?? "").trim();
+      if (!t) continue;
+      if (seen.has(t)) continue;
+      seen.add(t);
+      out.push(t);
+    }
+    return out;
+  }
+
+  // correct を含む4択を作る
+  function force4Unique(rnd, correct, wrongPool, extraPool = []) {
+    const c0 = String(correct ?? "").trim();
+    const pool = uniqKeep(wrongPool)
+      .filter((x) => x && x !== c0 && !isBadChoiceText(x));
+    const extra = uniqKeep(extraPool)
+      .filter((x) => x && x !== c0 && !isBadChoiceText(x));
+
+    let wrongs = [];
+    wrongs = wrongs.concat(shuffleWith(rnd, pool));
+    wrongs = wrongs.concat(shuffleWith(rnd, extra));
+
+    // 保険（極力使われない）
+    const safe = ["0", "1", "2", "3", "4", "5", "10", "20", "30", "100"];
+    wrongs = wrongs.concat(safe.filter((x) => x !== c0));
+
+    const picked = [];
+    for (const w of wrongs) {
+      if (picked.length >= 3) break;
+      if (w === c0) continue;
+      if (picked.includes(w)) continue;
+      picked.push(w);
+    }
+
+    const cands = [c0, ...picked];
+    const final = uniqKeep(cands).slice(0, 4);
+    while (final.length < 4) final.push(`(${final.length})`);
+
+    const shuffled = shuffleWith(rnd, final);
+    const a = shuffled.indexOf(c0);
+    return { c: shuffled, a };
+  }
+
+  /* =========================
+   * スキーマ検証
+   * ========================= */
   function validateQuestion(q) {
     if (!q) return false;
     if (!SUBJECTS.includes(q.sub)) return false;
@@ -80,906 +165,1026 @@
 
     if (typeof q.q !== "string" || !q.q.trim()) return false;
     if (!Array.isArray(q.c) || q.c.length !== 4) return false;
+    if (typeof q.a !== "number" || q.a < 0 || q.a > 3) return false;
 
     const choices = q.c.map((x) => String(x ?? "").trim());
     if (choices.some(isBadChoiceText)) return false;
-    if (new Set(choices).size !== 4) return false;
 
-    if (!Number.isInteger(q.a) || q.a < 0 || q.a > 3) return false;
-    if (isBadChoiceText(choices[q.a])) return false;
+    const set = new Set(choices);
+    if (set.size !== 4) return false;
 
-    if (typeof q.exp !== "string" || !q.exp.trim()) return false;
+    if (!choices[q.a]) return false;
     return true;
   }
 
-  function uniqStrings(arr) {
-    const out = [];
-    const seen = new Set();
-    for (const x of arr || []) {
-      const t = String(x ?? "").trim();
-      if (!t) continue;
-      if (seen.has(t)) continue;
-      if (isBadChoiceText(t)) continue;
-      seen.add(t);
-      out.push(t);
-    }
-    return out;
-  }
-
-  // 正解 + 誤答候補 → 必ずユニーク4択（正解位置は aIndex）
-  function force4Unique(correct, wrongPool, seed, aIndex) {
-    const c0 = String(correct ?? "").trim();
-    const pool = uniqStrings(wrongPool).filter((x) => x !== c0);
-
-    const wrongs = [];
-    for (let k = 0; k < pool.length && wrongs.length < 3; k++) {
-      const w = pool[(seed + k) % pool.length];
-      if (w !== c0 && !wrongs.includes(w)) wrongs.push(w);
-    }
-
-    // 最終保険（数値系の生成で不足した場合のみ、同じ形式の“数値ずらし”を作る）
-    // ここでは「見た目がダミー」にならないよう、正解と同型の簡易変形のみ行う
-    while (wrongs.length < 3) {
-      const t = wrongs.length;
-      const w = `${c0}（別案${t + 1}）`;
-      if (w !== c0 && !wrongs.includes(w)) wrongs.push(w);
-      else break;
-    }
-
-    let arr = [c0, ...wrongs].slice(0, 4);
-
-    aIndex = Math.max(0, Math.min(3, aIndex | 0));
-    const idx = arr.indexOf(c0);
-    if (idx !== aIndex) {
-      const tmp = arr[aIndex];
-      arr[aIndex] = c0;
-      arr[idx] = tmp;
-    }
-
-    // それでも重複が残る場合（極稀）に備え、最後にユニーク化して不足分を補う
-    arr = Array.from(new Set(arr));
-    while (arr.length < 4) arr.push(`${c0}の近い誤答${arr.length + 1}`);
-
-    return { c: arr.slice(0, 4), a: aIndex };
+  /* =========================
+   * 追加（key/uid付与）
+   * ========================= */
+  function toKey(q, i) {
+    return q.key || `${q.sub}|${q.level}|${q.diff}|${q.patternGroup}|${(q.q || "").slice(0, 48)}|${i}`;
   }
 
   function add(bank, q) {
+    const i = bank.length;
+    q.key = toKey(q, i);
+    q.uid = q.uid || makeUid(q);
     bank.push(q);
   }
 
-  function numChoices(correct, seed, unit = "") {
-    // 数値誤答を“それっぽく”作る
-    const v = Number(correct);
-    const pool = [
-      v + 1, v - 1, v + 2, v - 2,
-      v * 2, v / 2,
-      v + 5, v - 5,
-      v + 10, v - 10,
-    ]
-      .filter((x) => Number.isFinite(x))
-      .map((x) => `${(Math.round(x * 100) / 100)}${unit}`);
-
-    const { c, a } = force4Unique(`${(Math.round(v * 100) / 100)}${unit}`, pool, seed, seed % 4);
-    return { c, a };
+  /* =========================
+   * ユーティリティ：分数/最大公約数
+   * ========================= */
+  function gcd(a, b) {
+    a = Math.abs(a); b = Math.abs(b);
+    while (b) [a, b] = [b, a % b];
+    return a;
   }
-
-  function fracChoices(num, den, seed) {
-    const correct = `${num}/${den}`;
-    const pool = [
-      `${den}/${num}`,
-      `${num}/${den + 1}`,
-      `${num + 1}/${den}`,
-      `${Math.max(1, num - 1)}/${den}`,
-      `${num}/${Math.max(2, den - 1)}`,
-    ];
-    const { c, a } = force4Unique(correct, pool, seed, seed % 4);
-    return { c, a };
+  function frac(n, d) {
+    const g = gcd(n, d);
+    n /= g; d /= g;
+    if (d === 1) return `${n}`;
+    return `${n}/${d}`;
   }
 
   /* =========================
-   * 国語（増量＋論理読解）
+   * 時刻/経度（社会）
    * ========================= */
-  function genJapanese(bank) {
-    // 語彙（意味）
-    const vocab = [
-      ["端的", "要点を押さえて簡潔に", ["回りくどく詳しく", "曖昧に濁して", "感情的に強く", "偶然に"]],
-      ["妥当", "筋が通っていて適切", ["的外れで不適切", "強引で乱暴", "気分次第", "偶然に"]],
-      ["顕著", "目立ってはっきりしている", ["平凡で目立たない", "偶然の", "意味不明の", "短時間の"]],
-      ["継続", "同じことを続ける", ["中断する", "反対する", "否定する", "混乱する"]],
-      ["推敲", "文章を練り直す", ["丸写しする", "声に出す", "暗記する", "放置する"]],
-      ["要領", "物事をうまく進めるコツ", ["思いつき", "偶然", "余談", "失敗"]],
-      ["概略", "大まかな内容", ["細部の一覧", "結論だけ", "感情表現", "例外の列挙"]],
-      ["根拠", "理由やよりどころ", ["感想", "余談", "例外", "装飾"]],
-      ["簡潔", "無駄がなく短い", ["冗長", "過激", "不明瞭", "軽率"]],
-      ["慎重", "注意深く行う", ["軽率", "乱暴", "無関心", "即興"]],
-      ["要旨", "文章の中心となる内容", ["余談", "結末", "例外", "感想"]],
-      ["主張", "意見として強く述べること", ["例示", "装飾", "対比", "引用"]],
-      ["比喩", "たとえで表すこと", ["事実を列挙", "手順を説明", "数字で示す", "否定する"]],
-      ["含意", "はっきり言わずに意味を含ませる", ["大声で叫ぶ", "字面通りに読む", "順番に並べる", "誤字を直す"]],
-      ["逐一", "一つ一つ漏れなく", ["だいたい", "偶然", "ついでに", "適当に"]],
-      ["普遍", "広く一般に当てはまる", ["一時的", "局所的", "個人的", "例外的"]],
-      ["逆説", "一見矛盾するが成り立つこと", ["単純", "直線的", "同義反復", "感想"]],
-      ["相対", "他と比べて成り立つこと", ["絶対", "固定", "無関係", "偶然"]],
-      ["懐疑", "疑い深く見ること", ["盲信", "尊敬", "模倣", "同意"]],
-      ["俯瞰", "全体を見渡すこと", ["細部にこだわる", "感情を述べる", "手順を守る", "暗記する"]],
-    ];
-
-    vocab.forEach((it, i) => {
-      const [word, correct, wrongs] = it;
-      const { c, a } = force4Unique(correct, wrongs, i, (i + 1) % 4);
-      add(bank, {
-        sub: "国語",
-        level: "中",
-        diff: i % 5 === 0 ? "発展" : "標準",
-        patternGroup: "ja_vocab_meaning",
-        pattern: "vocab",
-        q: `「${word}」の意味として最も近いものは？`,
-        c, a,
-        exp: `「${word}」は「${correct}」の意味。`,
-      });
-    });
-
-    // 漢字の読み（増量）
-    const kanjiReading = [
-      ["概念", "がいねん", ["かいねん", "がいめん", "かいめん", "がいれん"]],
-      ["顧問", "こもん", ["ごもん", "こほん", "こうもん", "くもん"]],
-      ["抽象", "ちゅうしょう", ["ちゅうぞう", "ちゅうじょう", "ちゅうしょうう", "ちゅうしょ"]],
-      ["傾向", "けいこう", ["けいごう", "けんこう", "ていこう", "けいおう"]],
-      ["依存", "いぞん", ["いそん", "いじょん", "えぞん", "いどん"]],
-      ["許可", "きょか", ["きょが", "きょけ", "きょけい", "きょがい"]],
-      ["貢献", "こうけん", ["こうげん", "こうこん", "こうけい", "こうせん"]],
-      ["促進", "そくしん", ["そくじん", "しょくしん", "そくせん", "そっしん"]],
-      ["維持", "いじ", ["いし", "ゆじ", "いぢ", "いち"]],
-      ["整備", "せいび", ["せいひ", "しょうび", "せいひん", "せんび"]],
-      ["妥協", "だきょう", ["たきょう", "だきょ", "だっきょう", "だきゅう"]],
-      ["把握", "はあく", ["はくあく", "はおく", "ばあく", "はあけ"]],
-      ["慎重", "しんちょう", ["しんじゅう", "しんじょう", "しんしょう", "しんちょ"]],
-      ["簡潔", "かんけつ", ["かんてつ", "かんせつ", "かんけち", "かんけい"]],
-      ["普遍", "ふへん", ["ふへい", "ふべん", "ふへいん", "ふひん"]],
-      ["俯瞰", "ふかん", ["ふこん", "ふけん", "ぶかん", "ふか"]],
-    ];
-
-    kanjiReading.forEach((it, i) => {
-      const [word, correct, wrongs] = it;
-      const { c, a } = force4Unique(correct, wrongs, i, (i + 2) % 4);
-      add(bank, {
-        sub: "国語",
-        level: "中",
-        diff: i % 6 === 0 ? "発展" : "標準",
-        patternGroup: "ja_kanji_reading",
-        pattern: "kanji",
-        q: `次の漢字の読みとして正しいものは？「${word}」`,
-        c, a,
-        exp: `「${word}」は「${correct}」。`,
-      });
-    });
-
-    // 論理読解（短い評論風：主張/理由/対比）
-    const passages = [
-      {
-        p:
-          "「便利さ」はしばしば、私たちの判断を速くする。しかし速さは、ときに考える手間を省き、選択肢を狭める。便利さを否定するのではなく、便利さが奪うものを意識することが重要だ。",
-        q: "筆者の主張として最も適切なものは？",
-        correct: "便利さの利点を認めつつ、失われるものを意識すべきだ",
-        wrongs: [
-          "便利さは必ず人を不幸にするので排除すべきだ",
-          "速さは常に正しさにつながるので迷う必要はない",
-          "選択肢を増やすには便利さだけを追求すべきだ",
-        ],
-      },
-      {
-        p:
-          "努力は結果に直結しないことがある。だが、それは努力が無意味ということではない。努力は結果だけでなく、判断の精度や回復力といった別の資産を形成する。",
-        q: "本文の趣旨として最も近いものは？",
-        correct: "努力は結果以外の力も育てるため無意味ではない",
-        wrongs: [
-          "努力は結果に直結しないのでやめた方がよい",
-          "結果が出ない努力は本人の能力不足を示す",
-          "努力は運の良し悪しだけで評価されるべきだ",
-        ],
-      },
-      {
-        p:
-          "意見が割れるとき、人は「どちらが正しいか」に集中しがちだ。しかし、そもそも同じ言葉でも前提が違えば結論は変わる。前提を確認せずに議論しても、すれ違いは解消しない。",
-        q: "この文章が最も強調している点は？",
-        correct: "議論では前提の確認が不可欠だ",
-        wrongs: [
-          "議論では声の大きい人が正しい",
-          "言葉の意味は常に同じで前提は関係ない",
-          "意見が割れるのは知識不足だけが原因だ",
-        ],
-      },
-    ];
-
-    passages.forEach((it, i) => {
-      const { c, a } = force4Unique(it.correct, it.wrongs, i, i % 4);
-      add(bank, {
-        sub: "国語",
-        level: "中",
-        diff: "発展",
-        patternGroup: "ja_reading_logic",
-        pattern: "reading",
-        q: `次の文章を読み、設問に答えよ。\n\n${it.p}\n\n【問】${it.q}`,
-        c, a,
-        exp: `本文の対比（便利/速さ、結果/資産、正しさ/前提）に注目して要旨を抽出する。`,
-      });
-    });
+  const pad2 = (n) => String(n).padStart(2, "0");
+  function toMin(h, m) {
+    return ((h * 60 + m) % (24 * 60) + (24 * 60)) % (24 * 60);
+  }
+  function fromMin(min) {
+    const x = ((min % (24 * 60)) + (24 * 60)) % (24 * 60);
+    const h = (x / 60) | 0;
+    const m = x % 60;
+    return `${pad2(h)}:${pad2(m)}`;
+  }
+  function lonToDeg(lon) {
+    return lon.dir === "E" ? lon.deg : -lon.deg;
+  }
+  function formatLon(lon) {
+    return `${lon.dir === "E" ? "東経" : "西経"}${lon.deg}°`;
   }
 
   /* =========================
-   * 数学（難化＋テンプレ増量）
+   * 国語：多様化（四字熟語/ことわざ/語彙/漢字/文脈/SPI言語風）
    * ========================= */
-  function genMath(bank) {
-    // 1) 一次方程式（やや難：分数・移項の工夫）
-    for (let i = 0; i < 120; i++) {
-      const a = pick([2, 3, 4, 5, 6, 7, 8, 9], i);
-      const b = pick([1, 2, 3, 4, 5, 6, 7, 8, 9], i + 3);
-      const x = pick([-4, -3, -2, -1, 0, 1, 2, 3, 4], i + 5);
-
-      // (a)x - b = c を作る（符号も混ぜる）
-      const sign = i % 2 === 0 ? 1 : -1;
-      const cVal = a * x - sign * b;
-
-      const correct = String(x);
-      const pool = [x + 1, x - 1, -x, x + 2, x - 2, 2 * x].map(String);
-      const { c, a: ans } = force4Unique(correct, pool, i, i % 4);
-
-      add(bank, {
-        sub: "数学",
-        level: "中",
-        diff: i % 9 === 0 ? "発展" : "標準",
-        patternGroup: "math_linear_equation",
-        pattern: "equation",
-        q: `方程式 ${a}x ${sign > 0 ? "-" : "+"} ${b} = ${cVal} を解け。`,
-        c, a: ans,
-        exp: `${a}x = ${cVal} ${sign > 0 ? "+" : "-"} ${b} = ${a * x} より、x = ${(a * x)} ÷ ${a} = ${x}。`,
-      });
-    }
-
-    // 2) 連立方程式（文章題寄り）
-    for (let i = 0; i < 80; i++) {
-      const x = pick([2, 3, 4, 5, 6, 7, 8], i);
-      const y = pick([1, 2, 3, 4, 5, 6], i + 2);
-      const a1 = pick([2, 3, 4], i);
-      const b1 = pick([1, 2, 3], i + 1);
-      const a2 = pick([1, 2, 3], i + 3);
-      const b2 = pick([2, 3, 4], i + 4);
-
-      const s1 = a1 * x + b1 * y;
-      const s2 = a2 * x + b2 * y;
-
-      const correct = `(${x}, ${y})`;
-      const wrongs = [
-        `(${y}, ${x})`,
-        `(${x + 1}, ${y})`,
-        `(${x}, ${y + 1})`,
-        `(${x - 1}, ${y})`,
-        `(${x}, ${Math.max(0, y - 1)})`,
-      ];
-      const { c, a } = force4Unique(correct, wrongs, i, (i + 1) % 4);
-
-      add(bank, {
-        sub: "数学",
-        level: "中",
-        diff: "発展",
-        patternGroup: "math_system_equations",
-        pattern: "equation",
-        q: `次の連立方程式を満たす (x, y) はどれか。\n  ${a1}x + ${b1}y = ${s1}\n  ${a2}x + ${b2}y = ${s2}`,
-        c, a,
-        exp: `代入法または加減法で解く。正解は (x, y)=(${x}, ${y})。`,
-      });
-    }
-
-    // 3) 二次関数（入試頻出：値・増減）
-    for (let i = 0; i < 90; i++) {
-      const A = pick([1, 2, -1, -2], i);
-      const B = pick([-4, -2, 0, 2, 4], i + 1);
-      const C = pick([-5, -2, 0, 3, 6], i + 2);
-      const x0 = pick([-2, -1, 0, 1, 2, 3], i + 3);
-      const y = A * x0 * x0 + B * x0 + C;
-
-      const correct = y;
-      const { c, a } = numChoices(correct, i, "");
-      add(bank, {
-        sub: "数学",
-        level: "中",
-        diff: i % 4 === 0 ? "発展" : "標準",
-        patternGroup: "math_quadratic_value",
-        pattern: "function",
-        q: `関数 y = ${A}x^2 ${B >= 0 ? "+ " + B + "x" : "- " + Math.abs(B) + "x"} ${C >= 0 ? "+ " + C : "- " + Math.abs(C)} において、x=${x0} のときの y の値は？`,
-        c, a,
-        exp: `x=${x0} を代入：y=${A}×${x0}^2 ${B >= 0 ? "+ " + B + "×" + x0 : "- " + Math.abs(B) + "×" + x0} ${C >= 0 ? "+ " + C : "- " + Math.abs(C)} = ${y}。`,
-      });
-    }
-
-    // 4) 図形：角度推論（“一手”ではなく複数条件）
-    // テンプレ：平行線＋錯角・同位角
-    for (let i = 0; i < 80; i++) {
-      const a = pick([20, 25, 30, 35, 40, 45, 50, 55], i);
-      const b = pick([10, 15, 20, 25, 30], i + 2);
-      // 例：三角形の外角関係っぽく組む（確定計算）
-      const x = 180 - (a + b);
-
-      const correct = `${x}°`;
-      const wrongs = [`${x + 10}°`, `${x - 10}°`, `${a + b}°`, `${180 - a}°`, `${180 - b}°`];
-      const { c, a: ans } = force4Unique(correct, wrongs, i, i % 4);
-
-      add(bank, {
-        sub: "数学",
-        level: "中",
-        diff: "発展",
-        patternGroup: "math_geometry_angle_chase",
-        pattern: "geometry",
-        q: `三角形ABCで、∠A=${a}°、∠B=${b}°のとき、∠Cは？`,
-        c, a: ans,
-        exp: `三角形の内角の和は180°。よって ∠C = 180° - (${a}° + ${b}°) = ${x}°。`,
-      });
-    }
-
-    // 5) 整数（中学受験寄りの“条件整理”）
-    for (let i = 0; i < 80; i++) {
-      const n = pick([12, 15, 18, 20, 24, 30, 36], i);
-      const r = pick([1, 2, 3, 4, 5], i + 3);
-      // 「nで割ると余りr」型
-      const correct = `${r}`;
-      const wrongs = ["0", "6", "7", "8", "9"].filter((x) => x !== correct);
-      const { c, a } = force4Unique(correct, wrongs, i, (i + 2) % 4);
-
-      add(bank, {
-        sub: "数学",
-        level: "中",
-        diff: "発展",
-        patternGroup: "math_number_theory_remainder",
-        pattern: "number",
-        q: `ある整数Nは${n}で割ると余りが${r}である。Nを${n}で割ったときの余りとして正しいものは？`,
-        c, a,
-        exp: `条件そのものが「${n}で割ると余り${r}」を意味する。余りは${r}。`,
-      });
-    }
-
-    // 6) 場合の数（“数え上げ”）
-    for (let i = 0; i < 70; i++) {
-      const n = pick([4, 5, 6, 7], i);
-      const k = pick([2, 3], i + 2);
-      // n人からk人を選ぶ（順不同）→ nCk
-      const comb = (nn, kk) => {
-        if (kk < 0 || kk > nn) return 0;
-        kk = Math.min(kk, nn - kk);
-        let num = 1, den = 1;
-        for (let t = 1; t <= kk; t++) {
-          num *= (nn - kk + t);
-          den *= t;
-        }
-        return Math.round(num / den);
-      };
-      const ans = comb(n, k);
-
-      const { c, a } = numChoices(ans, i, "");
-      add(bank, {
-        sub: "数学",
-        level: "中",
-        diff: "発展",
-        patternGroup: "math_counting_combination",
-        pattern: "counting",
-        q: `${n}人の中から${k}人を選ぶ方法は何通りか？（順番は区別しない）`,
-        c, a,
-        exp: `順不同なので組合せ。${n}C${k} = ${ans}。`,
-      });
-    }
-
-    // 7) 確率（条件付きっぽいが中学範囲で確定）
-    for (let i = 0; i < 70; i++) {
-      const total = pick([10, 12, 15, 20], i);
-      const win = pick([3, 4, 5, 6], i + 1);
-      // 1回で当たり、戻さず2回目も当たりの確率（win/total * (win-1)/(total-1))
-      const num = win * (win - 1);
-      const den = total * (total - 1);
-
-      const reduce = (a, b) => {
-        const g = (x, y) => (y === 0 ? x : g(y, x % y));
-        const gg = g(Math.abs(a), Math.abs(b));
-        return [a / gg, b / gg];
-      };
-      const [rn, rd] = reduce(num, den);
-      const { c, a } = fracChoices(rn, rd, i);
-
-      add(bank, {
-        sub: "数学",
-        level: "中",
-        diff: "発展",
-        patternGroup: "math_probability_no_replacement",
-        pattern: "probability",
-        q: `箱に全部で${total}個の玉があり、そのうち当たりは${win}個ある。1個取り出して戻さず、続けてもう1個取り出すとき、2回とも当たりである確率は？`,
-        c, a,
-        exp: `1回目：${win}/${total}、2回目：${win - 1}/${total - 1}。よって ${win}/${total}×${win - 1}/${total - 1}=${rn}/${rd}。`,
-      });
-    }
-  }
-
-  /* =========================
-   * 英語（難化＋増量）
-   * ========================= */
-  function genEnglish(bank) {
-    // 文法テンプレ（関係代名詞 / 不定詞 / 動名詞 / 助動詞 / 受動態 / 比較）
-    const rel = [
-      { q: "This is the boy (   ) helped me.", correct: "who", wrongs: ["which", "where", "when"] },
-      { q: "I have a book (   ) my father gave me.", correct: "that", wrongs: ["who", "where", "when"] },
-      { q: "This is the house (   ) I was born.", correct: "where", wrongs: ["who", "that", "which"] },
-    ];
-    const toInf = [
-      { q: "I want (   ) English well.", correct: "to speak", wrongs: ["speaking", "speak", "spoke"] },
-      { q: "It is important (   ) enough sleep.", correct: "to get", wrongs: ["getting", "get", "got"] },
-    ];
-    const gerund = [
-      { q: "I enjoy (   ) music.", correct: "listening to", wrongs: ["listen to", "to listen to", "listened to"] },
-      { q: "Stop (   ) and listen.", correct: "talking", wrongs: ["to talk", "talk", "talked"] },
-    ];
-    const modal = [
-      { q: "You (   ) run in the hallway.", correct: "must not", wrongs: ["must", "may", "can"] },
-      { q: "I (   ) help you tomorrow.", correct: "will", wrongs: ["am", "did", "was"] },
-    ];
-    const passive = [
-      { q: "English (   ) in many countries.", correct: "is spoken", wrongs: ["speaks", "spoke", "is speaking"] },
-      { q: "This room (   ) every day.", correct: "is cleaned", wrongs: ["cleans", "cleaned", "is cleaning"] },
-      { q: "The window (   ) yesterday.", correct: "was broken", wrongs: ["breaks", "is broken", "was breaking"] },
-    ];
-    const comp = [
-      { q: "This box is (   ) than that one.", correct: "heavier", wrongs: ["heavy", "heaviest", "more heavy"] },
-      { q: "This movie is (   ) interesting than that one.", correct: "more", wrongs: ["most", "much", "many"] },
+  function genJapanese(bank, n, seedBase = 1000) {
+    const idioms = [
+      { y: "一石二鳥", m: "一つの行為で二つの利益を得る", w: ["努力しても報われない", "危険を冒して挑む", "勢いに任せて行う"] },
+      { y: "臥薪嘗胆", m: "目的のため苦労に耐えて努力する", w: ["すぐにあきらめる", "うまくいった時に油断する", "他人に頼り切る"] },
+      { y: "優柔不断", m: "決断がはっきりしない", w: ["考えずに即断する", "強い意志で貫く", "判断が正確で迷わない"] },
+      { y: "温故知新", m: "昔のことを学び新しい知見を得る", w: ["新しいことだけを追う", "過去を忘れる", "感情で判断する"] },
+      { y: "疑心暗鬼", m: "疑う気持ちが強くなり何でも怪しく思う", w: ["冷静に事実を確認する", "信頼を深める", "安心して任せる"] },
+      { y: "破釜沈舟", m: "覚悟を決めて全力でやり抜く", w: ["途中で引き返す", "様子を見る", "運に任せる"] },
+      { y: "公明正大", m: "私心がなく正しく公平である", w: ["自分の利益を優先する", "不正を隠す", "議論を避ける"] },
+      { y: "臨機応変", m: "状況に応じて適切に対応する", w: ["一切方針を変えない", "無計画に動く", "思いつきだけで行動する"] },
     ];
 
-    const packs = [
-      { list: rel, group: "eng_relative", diff: "発展" },
-      { list: toInf, group: "eng_infinitive", diff: "標準" },
-      { list: gerund, group: "eng_gerund", diff: "発展" },
-      { list: modal, group: "eng_modal", diff: "標準" },
-      { list: passive, group: "eng_passive", diff: "発展" },
-      { list: comp, group: "eng_comparative", diff: "標準" },
+    const proverbs = [
+      { q: "「石の上にも（　）」の（　）に入る語は？", a: "三年", w: ["一日", "百年", "十分"], exp: "辛抱すれば成果が出る、の意味。" },
+      { q: "「（　）も木から落ちる」の（　）に入る語は？", a: "猿", w: ["犬", "猫", "鳥"], exp: "名人でも失敗する、の意味。" },
+      { q: "「急がば（　）」の（　）に入る語は？", a: "回れ", w: ["走れ", "飛べ", "止まれ"], exp: "急ぐときほど確実な方法を、の意味。" },
+      { q: "「（　）に水」の（　）に入る語は？", a: "焼け石", w: ["木の葉", "土", "氷"], exp: "効果がほとんどない、の意味。" },
     ];
 
-    for (let i = 0; i < 220; i++) {
-      const pack = pick(packs, i);
-      const it = pick(pack.list, i + 3);
-      const { c, a } = force4Unique(it.correct, it.wrongs, i, i % 4);
-      add(bank, {
-        sub: "英語",
-        level: "中",
-        diff: pack.diff,
-        patternGroup: pack.group,
-        pattern: "grammar",
-        q: `(　)に入る語句として最も適切なものは？\n${it.q}`,
-        c, a,
-        exp: `文法事項（${pack.group}）に基づき正解は「${it.correct}」。`,
-      });
-    }
-
-    // 語彙（同義語/近い意味）
-    const vocab = [
-      { w: "important", correct: "大切な", wrongs: ["高い", "速い", "静かな"] },
-      { w: "decide", correct: "決める", wrongs: ["借りる", "壊す", "忘れる"] },
-      { w: "continue", correct: "続ける", wrongs: ["止める", "渡す", "疑う"] },
-      { w: "increase", correct: "増える", wrongs: ["減る", "消える", "壊れる"] },
-      { w: "careful", correct: "注意深い", wrongs: ["眠い", "乱暴な", "空腹の"] },
+    const kanji = [
+      { k: "精査", r: "せいさ", w: ["せいしゃ", "しょうさ", "せんさ"] },
+      { k: "端的", r: "たんてき", w: ["たんてい", "はたんてき", "たんていき"] },
+      { k: "逸脱", r: "いつだつ", w: ["いちだつ", "いったつ", "いつたつ"] },
+      { k: "概ね", r: "おおむね", w: ["おおまね", "おおね", "おおむめ"] },
+      { k: "憂慮", r: "ゆうりょ", w: ["ゆりょ", "ゆうろ", "ようりょ"] },
+      { k: "即応", r: "そくおう", w: ["そくお", "しょくおう", "そくよう"] },
+      { k: "緻密", r: "ちみつ", w: ["ちみち", "しみつ", "ちみちつ"] },
+      { k: "顕著", r: "けんちょ", w: ["けんしょ", "けんちゃく", "けんちょう"] },
     ];
-    for (let i = 0; i < 120; i++) {
-      const it = pick(vocab, i);
-      const { c, a } = force4Unique(it.correct, it.wrongs, i, (i + 2) % 4);
-      add(bank, {
-        sub: "英語",
-        level: "中",
-        diff: "標準",
-        patternGroup: "eng_vocab_basic",
-        pattern: "vocab",
-        q: `次の英単語の意味として最も適切なものは？「${it.w}」`,
-        c, a,
-        exp: `「${it.w}」＝「${it.correct}」。`,
-      });
-    }
 
-    // 短文読解（指示語・要旨）
-    const reading = [
-      {
-        p: "Tom studied hard. However, he failed the test. He decided to change the way he studied.",
-        q: "However の働きとして最も近いものは？",
-        correct: "逆接",
-        wrongs: ["理由", "並列", "具体例"],
-      },
-      {
-        p: "I forgot my umbrella, so I got wet on my way home.",
-        q: "so の意味として最も適切なものは？",
-        correct: "だから",
-        wrongs: ["しかし", "もし", "そして"],
-      },
-      {
-        p: "Ken has a bike. It is old but very useful.",
-        q: "It が指すものは？",
-        correct: "Kenの自転車",
-        wrongs: ["Ken", "家", "傘"],
-      },
+    const contextFill = [
+      { q: "次の文の（　）に入る語として最も適切なものは？\n「議論が（　）して論点が見えにくくなった。」", a: "拡散", w: ["収束", "固定", "一貫"] },
+      { q: "次の文の（　）に入る語として最も適切なものは？\n「結論はデータから（　）される。」", a: "導出", w: ["装飾", "回避", "放置"] },
+      { q: "次の文の（　）に入る語として最も適切なものは？\n「根拠が（　）な主張は説得力に欠ける。」", a: "薄い", w: ["濃い", "鋭い", "重い"] },
+      { q: "次の文の（　）に入る語として最も適切なものは？\n「説明は（　）で、要点がすぐ伝わった。」", a: "簡潔", w: ["冗長", "散漫", "唐突"] },
     ];
-    for (let i = 0; i < 90; i++) {
-      const it = pick(reading, i);
-      const { c, a } = force4Unique(it.correct, it.wrongs, i, i % 4);
-      add(bank, {
-        sub: "英語",
-        level: "中",
-        diff: "発展",
-        patternGroup: "eng_reading_short",
-        pattern: "reading",
-        q: `次の英文を読み、設問に答えよ。\n\n${it.p}\n\n【問】${it.q}`,
-        c, a,
-        exp: `文脈（接続語・指示語）を追って判断する。`,
-      });
-    }
-  }
 
-  /* =========================
-   * 理科（公式ヒント削除＋思考系増量）
-   * ========================= */
-  function genScience(bank) {
-    // 物理：密度/オーム/圧力/仕事（問題文に公式ヒントなし）
-    for (let i = 0; i < 180; i++) {
-      const kind = i % 4;
+    const spiLike = [
+      { q: "次の語の意味として最も近いものは？「本質」", a: "物事の中心となる性質", w: ["表面上の印象", "偶然の出来事", "細部の違い"] },
+      { q: "次の語の意味として最も近いものは？「妥当」", a: "筋が通っていて適切", w: ["強引で押し切る", "曖昧で不明確", "極端で偏っている"] },
+      { q: "次の語の意味として最も近いものは？「逆説」", a: "一見矛盾するようで真理を含む表現", w: ["単なる同義反復", "無関係な説明", "事実の羅列"] },
+      { q: "次の語の意味として最も近いものは？「補足」", a: "不足を補って付け加えること", w: ["内容を削ること", "結論を先に言うこと", "無関係な話題に変えること"] },
+    ];
+
+    for (let i = 0; i < n; i++) {
+      const rnd = mulberry32(seedBase + i);
+      const kind = i % 5;
 
       if (kind === 0) {
-        const d = pick([0.8, 1.0, 1.2, 2.0, 2.7, 7.9], i);
-        const v = pick([10, 15, 20, 25, 30, 40, 50], i + 1);
-        const m = d * v;
-        const correct = `${m}g`;
-        const pool = [`${v}g`, `${(d + 1) * v}g`, `${m + 10}g`, `${Math.max(0, m - 10)}g`, `${m + 5}g`, `${Math.max(0, m - 5)}g`];
-        const { c, a } = force4Unique(correct, pool, i, i % 4);
+        const it = pick(rnd, idioms);
+        const { c, a } = force4Unique(rnd, it.m, it.w, ["状況に合っている", "筋が通っている", "意味が明確である"]);
         add(bank, {
-          sub: "理科",
-          level: "中",
-          diff: i % 6 === 0 ? "発展" : "標準",
-          patternGroup: "sci_density",
-          pattern: "physics",
-          q: `密度が${d}g/cm³で、体積が${v}cm³の物体がある。この物体の質量は？`,
+          sub: "国語", level: "中", diff: "標準",
+          pattern: "vocab",
+          patternGroup: "ja_idiom_meaning",
+          q: `「${it.y}」の意味として最も近いものは？`,
           c, a,
-          exp: `質量=密度×体積。${d}×${v}=${m}g。`,
+          exp: `「${it.y}」＝「${it.m}」。`,
         });
-      }
-
-      if (kind === 1) {
-        const R = pick([2, 4, 5, 8, 10, 12], i);
-        const I = pick([0.2, 0.5, 1, 1.5, 2], i + 2);
-        const V = R * I;
-        const correct = `${V}V`;
-        const pool = [`${R}V`, `${I}V`, `${V + 2}V`, `${Math.max(0, V - 1)}V`, `${V + 1}V`, `${Math.max(0, V - 2)}V`];
-        const { c, a } = force4Unique(correct, pool, i, (i + 1) % 4);
+      } else if (kind === 1) {
+        const it = pick(rnd, proverbs);
+        const { c, a } = force4Unique(rnd, it.a, it.w, ["一週間", "十年", "三日"]);
         add(bank, {
-          sub: "理科",
-          level: "中",
-          diff: "発展",
-          patternGroup: "sci_ohm",
-          pattern: "physics",
-          q: `抵抗が${R}Ω、電流が${I}Aの回路がある。このときの電圧は？`,
+          sub: "国語", level: "中", diff: "標準",
+          pattern: "vocab",
+          patternGroup: "ja_proverb",
+          q: it.q,
           c, a,
-          exp: `オームの法則：V=IR。${R}×${I}=${V}V。`,
+          exp: it.exp,
         });
-      }
-
-      if (kind === 2) {
-        const F = pick([100, 150, 200, 250, 300, 400], i);
-        const S = pick([10, 20, 25, 40, 50], i + 3);
-        const p = F / S;
-        const correct = `${p}`;
-        const pool = [`${p + 2}`, `${Math.max(1, p - 2)}`, `${F * S}`, `${F + S}`, `${p + 1}`, `${Math.max(1, p - 1)}`];
-        const { c, a } = force4Unique(correct, pool, i, (i + 2) % 4);
+      } else if (kind === 2) {
+        const it = pick(rnd, kanji);
+        const { c, a } = force4Unique(rnd, it.r, it.w, ["けんしゅ", "ちみち", "ゆうりょう"]);
         add(bank, {
-          sub: "理科",
-          level: "中",
-          diff: "標準",
-          patternGroup: "sci_pressure",
-          pattern: "physics",
-          q: `力が${F}N、面積が${S}cm²のとき、圧力（力÷面積）の値は？（数値のみ）`,
+          sub: "国語", level: "中", diff: "発展",
+          pattern: "kanji",
+          patternGroup: "ja_kanji_reading",
+          q: `次の漢字の読みとして正しいものは？「${it.k}」`,
           c, a,
-          exp: `圧力=力÷面積。${F}÷${S}=${p}。`,
+          exp: `「${it.k}」は「${it.r}」。`,
         });
-      }
-
-      if (kind === 3) {
-        const W = pick([120, 150, 180, 200, 240, 300], i);
-        const t = pick([2, 3, 4, 5, 6], i + 1);
-        const P = W / t;
-        const correct = `${P}W`;
-        const pool = [`${W}W`, `${t}W`, `${P + 10}W`, `${Math.max(0, P - 10)}W`, `${P + 5}W`, `${Math.max(0, P - 5)}W`];
-        const { c, a } = force4Unique(correct, pool, i, i % 4);
+      } else if (kind === 3) {
+        const it = pick(rnd, contextFill);
+        const { c, a } = force4Unique(rnd, it.a, it.w, ["適切", "明確", "丁寧"]);
         add(bank, {
-          sub: "理科",
-          level: "中",
-          diff: "発展",
-          patternGroup: "sci_power",
-          pattern: "physics",
-          q: `仕事が${W}J行われ、時間が${t}秒かかった。仕事率は？`,
+          sub: "国語", level: "中", diff: "発展",
+          pattern: "reading",
+          patternGroup: "ja_context_fill",
+          q: it.q,
           c, a,
-          exp: `仕事率=仕事÷時間。${W}÷${t}=${P}W。`,
+          exp: `文脈上、自然な語を選ぶ。正解は「${it.a}」。`,
+        });
+      } else {
+        const it = pick(rnd, spiLike);
+        const { c, a } = force4Unique(rnd, it.a, it.w, ["具体例", "感情", "単なる偶然"]);
+        add(bank, {
+          sub: "国語", level: "中", diff: "標準",
+          pattern: "vocab",
+          patternGroup: "ja_spi_like",
+          q: it.q,
+          c, a,
+          exp: `語の定義を押さえる。`,
         });
       }
     }
-
-    // 化学（反応・質量保存・気体・中和：思考寄り）
-    const chem = [
-      {
-        q: "炭酸水素ナトリウムを加熱すると二酸化炭素が発生する。このとき発生した気体を確かめる方法として適切なのは？",
-        correct: "石灰水を白くにごらせる",
-        wrongs: ["線香の火を強く燃やす", "マッチの火を消す", "赤色リトマス紙を青にする"],
-        exp: "二酸化炭素は石灰水を白くにごらせる。",
-      },
-      {
-        q: "金属を空気中で加熱すると質量が増えることがある。その主な理由として最も適切なのは？",
-        correct: "酸素と結びつくから",
-        wrongs: ["水に溶けるから", "光を反射するから", "気体が抜けるから"],
-        exp: "酸化により酸素を取り込むため質量が増える。",
-      },
-      {
-        q: "うすい塩酸にうすい水酸化ナトリウム水溶液を加えるとき、完全に中和した状態として最も適切なのは？",
-        correct: "水と塩化ナトリウムができている",
-        wrongs: ["二酸化炭素が発生している", "酸素が発生している", "金属が溶けている"],
-        exp: "中和では塩（ここでは塩化ナトリウム）と水ができる。",
-      },
-      {
-        q: "ある反応で発生した気体が水上置換で集められた。水に溶けにくい気体として最も適切なのは？",
-        correct: "水素",
-        wrongs: ["アンモニア", "塩化水素", "二酸化硫黄"],
-        exp: "水素は水に溶けにくいので水上置換に向く。",
-      },
-    ];
-
-    chem.forEach((it, i) => {
-      const { c, a } = force4Unique(it.correct, it.wrongs, i, (i + 1) % 4);
-      add(bank, {
-        sub: "理科",
-        level: "中",
-        diff: "発展",
-        patternGroup: "sci_chem_reasoning",
-        pattern: "chemistry",
-        q: it.q,
-        c, a,
-        exp: it.exp,
-      });
-    });
-
-    // 生物（遺伝・生態系：推論）
-    const bio = [
-      {
-        q: "植物の光合成と呼吸について正しいものは？",
-        correct: "呼吸は昼夜とも行われる",
-        wrongs: ["呼吸は昼だけ行われる", "光合成は夜だけ行われる", "光合成で二酸化炭素を放出する"],
-        exp: "呼吸は常に行われ、光合成は光があるときに進む。",
-      },
-      {
-        q: "食物連鎖で上位の生物ほど個体数が少なくなりやすい主な理由は？",
-        correct: "エネルギーの一部が熱などで失われるから",
-        wrongs: ["上位ほど水が必要ないから", "上位ほど光合成できるから", "上位ほど寿命が短いから"],
-        exp: "栄養段階が上がるほど利用できるエネルギーが減る。",
-      },
-      {
-        q: "遺伝で、丸い種子が優性、しわのある種子が劣性である。丸い種子同士を交配して、しわのある種子が生まれる可能性がある組合せは？",
-        correct: "両親がともにヘテロ接合である",
-        wrongs: ["両親がともに優性ホモ接合である", "片方が劣性ホモ接合である", "両親がともに劣性ホモ接合である"],
-        exp: "丸（優性）同士でも Aa×Aa なら aa が生じ得る。",
-      },
-    ];
-
-    bio.forEach((it, i) => {
-      const { c, a } = force4Unique(it.correct, it.wrongs, i, (i + 2) % 4);
-      add(bank, {
-        sub: "理科",
-        level: "中",
-        diff: "発展",
-        patternGroup: "sci_bio_reasoning",
-        pattern: "biology",
-        q: it.q,
-        c, a,
-        exp: it.exp,
-      });
-    });
-
-    // 地学（天気図/季節：文章で読ませる）
-    const earth = [
-      {
-        q: "湿度が高い日に汗が乾きにくい理由として最も適切なのは？",
-        correct: "空気中の水蒸気が多く、蒸発しにくいから",
-        wrongs: ["気圧が低いから", "地面が冷たいから", "太陽が出ているから"],
-        exp: "蒸発は空気の乾き具合に依存する。湿度が高いほど蒸発しにくい。",
-      },
-      {
-        q: "地震波で、先に到達して初期微動を起こすものは？",
-        correct: "P波",
-        wrongs: ["S波", "表面波", "L波"],
-        exp: "P波は縦波で速く伝わり初期微動を起こす。",
-      },
-      {
-        q: "地層で、上の地層ほど新しいと判断できる根拠として最も適切なのは？",
-        correct: "堆積は下から上へ重なっていくから",
-        wrongs: ["上ほど固いから", "上ほど温度が高いから", "上ほど必ず化石が多いから"],
-        exp: "地層は原則として下に古い層、上に新しい層が重なる。",
-      },
-    ];
-
-    earth.forEach((it, i) => {
-      const { c, a } = force4Unique(it.correct, it.wrongs, i, i % 4);
-      add(bank, {
-        sub: "理科",
-        level: "中",
-        diff: "標準",
-        patternGroup: "sci_earth_text",
-        pattern: "earth",
-        q: it.q,
-        c, a,
-        exp: it.exp,
-      });
-    });
   }
 
   /* =========================
-   * 社会（暗記＋資料読解＋計算）
+   * 数学：思考系を厚く（場合の数/確率/整数/図形比/規則性/条件整理）
    * ========================= */
-  function genSocial(bank) {
-    // 地理：基礎＋少し推論
-    const geo = [
-      ["日本の標準時の基準となる経線は？", "東経135度", ["東経0度", "東経90度", "東経180度"]],
-      ["赤道付近で多い気候帯は？", "熱帯", ["寒帯", "温帯", "乾燥帯"]],
-      ["日本で人口が最も多い都道府県は？", "東京都", ["大阪府", "北海道", "愛知県"]],
-      ["輸出が輸入を上回る状態は？", "貿易黒字", ["貿易赤字", "関税", "為替"]],
-      ["工業製品を海外に売ることは？", "輸出", ["輸入", "関税", "統計"]],
-      ["人口ピラミッドで高齢者の割合が大きい形に近いのは？", "つぼ型", ["富士山型", "ピラミッド型", "三角形型"]],
-    ];
-    geo.forEach((it, i) => {
-      const [qText, correct, wrongs] = it;
-      const { c, a } = force4Unique(correct, wrongs, i, (i + 1) % 4);
-      add(bank, {
-        sub: "社会",
-        level: "中",
-        diff: i % 4 === 0 ? "基礎" : "標準",
-        patternGroup: "soc_geo_basic",
-        pattern: "geo",
-        q: qText,
-        c, a,
-        exp: `基礎事項。正解は「${correct}」。`,
-      });
-    });
+  function genMathHard(bank, n, seedBase = 2000) {
+    for (let i = 0; i < n; i++) {
+      const rnd = mulberry32(seedBase + i);
+      const kind = i % 10;
 
-    // 時差（15°=1時間：問題文に“公式ヒント”は最小限、計算条件は残す）
-    for (let i = 0; i < 120; i++) {
-      const baseLon = pick([135, 0, 30, 60, 90, 120, 150], i);
-      const diff = pick([15, 30, 45, 60, 75, 90], i + 2);
-      const east = i % 2 === 0;
-      const targetLon = east ? baseLon + diff : baseLon - diff;
-      const hours = diff / 15;
-
-      const correct = east ? `${hours}時間進む` : `${hours}時間遅れる`;
-      const wrongs = [
-        east ? `${hours}時間遅れる` : `${hours}時間進む`,
-        "1時間進む", "1時間遅れる",
-        "2時間進む", "2時間遅れる",
-      ];
-      const { c, a } = force4Unique(correct, wrongs, i, i % 4);
-
-      add(bank, {
-        sub: "社会",
-        level: "中",
-        diff: "発展",
-        patternGroup: "soc_geo_timezone",
-        pattern: "geo",
-        q: `経度${baseLon}°の地点から経度${targetLon}°の地点へ移動した。時刻は一般にどうなる？（経度15°で1時間）`,
-        c, a,
-        exp: `経度差${diff}°→${hours}時間。東へ行くと進み、西へ行くと遅れる。`,
-      });
+      if (kind === 0) {
+        // 確率：単発当たり（正解が必ず選択肢に入る）
+        const N = pick(rnd, [6, 8, 10, 12, 15]);
+        const correct = frac(1, N);
+        const wrong = [frac(1, N - 1), frac(2, N), frac(N - 1, N), frac(1, N + 1)];
+        const { c, a } = force4Unique(rnd, correct, wrong, []);
+        add(bank, {
+          sub: "数学", level: "中", diff: "標準",
+          pattern: "prob",
+          patternGroup: "math_prob_single_hit",
+          q: `${N}枚のカードのうち1枚だけ当たりがある。1回引いて当たりを引く確率は？`,
+          c, a,
+          exp: `当たりは1通り、全体は${N}通りなので 1/${N}。`,
+        });
+      } else if (kind === 1) {
+        // 条件付き確率：余事象（少なくとも1回）
+        const total = pick(rnd, [8, 10, 12]);
+        const red = pick(rnd, [3, 4, 5]);
+        const blue = total - red;
+        const num0 = blue * (blue - 1);
+        const den = total * (total - 1);
+        const correct = `1 - ${frac(num0, den)}`;
+        const wrong = [`${frac(num0, den)}`, `1 - ${frac(red * (red - 1), den)}`, `1 - ${frac(blue, total)}`, `${frac(red, total)}`];
+        const { c, a } = force4Unique(rnd, correct, wrong, []);
+        add(bank, {
+          sub: "数学", level: "中", diff: "発展",
+          pattern: "prob",
+          patternGroup: "math_prob_complement",
+          q: `赤玉${red}個、青玉${blue}個が入った袋から、戻さずに2回取り出す。「少なくとも1回赤玉」を取り出す確率として正しい式は？`,
+          c, a,
+          exp: `余事象を用いる。「赤が0回」＝2回とも青。よって 1 - (青/全体)×((青-1)/(全体-1))。`,
+        });
+      } else if (kind === 2) {
+        // 場合の数：重複なしの3桁
+        const digits = pick(rnd, [[1,2,3,4,5], [0,1,2,3,4,5], [2,3,4,6,7]]);
+        const set = digits.slice();
+        const hasZero = set.includes(0);
+        // 先頭0不可、同じ数字は使わない
+        let count;
+        if (!hasZero) {
+          count = set.length * (set.length - 1) * (set.length - 2);
+        } else {
+          // 先頭：0以外
+          count = (set.length - 1) * (set.length - 1) * (set.length - 2);
+        }
+        const correct = `${count}`;
+        const wrong = [`${count + set.length}`, `${Math.max(1, count - set.length)}`, `${set.length * set.length * set.length}`, `${(set.length - 1) * (set.length - 2) * (set.length - 3)}`];
+        const { c, a } = force4Unique(rnd, correct, wrong, []);
+        add(bank, {
+          sub: "数学", level: "中", diff: "発展",
+          pattern: "count",
+          patternGroup: "math_count_3digit_no_repeat",
+          q: `次の数字だけを使って、同じ数字を2回使わない3桁の整数を作る。作れる数は何通りか？（使える数字：${set.join(", ")}）`,
+          c, a,
+          exp: `先頭に0が来ない条件と、重複なしの積の法則で数える。`,
+        });
+      } else if (kind === 3) {
+        // 規則性：n番目（受験典型）
+        const a1 = pick(rnd, [2, 3, 5]);
+        const d = pick(rnd, [3, 4, 6]);
+        const n0 = pick(rnd, [8, 10, 12, 15]);
+        const an = a1 + (n0 - 1) * d;
+        const correct = `${an}`;
+        const wrong = [`${a1 + n0 * d}`, `${a1 + (n0 - 2) * d}`, `${an + d}`, `${an - d}`];
+        const { c, a } = force4Unique(rnd, correct, wrong, []);
+        add(bank, {
+          sub: "数学", level: "中", diff: "標準",
+          pattern: "sequence",
+          patternGroup: "math_sequence_arithmetic",
+          q: `数列 ${a1}, ${a1 + d}, ${a1 + 2*d}, ... の第${n0}項は？`,
+          c, a,
+          exp: `等差数列。第n項＝初項＋(n-1)×公差。`,
+        });
+      } else if (kind === 4) {
+        // 整数：余り（合同の発想）
+        const m = pick(rnd, [5, 7, 9, 11]);
+        const a0 = pick(rnd, [2, 3, 4]);
+        const b0 = pick(rnd, [3, 4, 5]);
+        // (a0*100 + b0*10 + a0) の mでの余り
+        const N = a0 * 100 + b0 * 10 + a0;
+        const rem = ((N % m) + m) % m;
+        const correct = `${rem}`;
+        const wrong = [`${(rem + 1) % m}`, `${(rem + m - 1) % m}`, `${(rem + 2) % m}`, `${(rem + 3) % m}`];
+        const { c, a } = force4Unique(rnd, correct, wrong, []);
+        add(bank, {
+          sub: "数学", level: "中", diff: "発展",
+          pattern: "number",
+          patternGroup: "math_mod_remainder",
+          q: `${a0}${b0}${a0} を ${m} で割った余りは？`,
+          c, a,
+          exp: `余りの性質（合同）で計算する。実際に割ってもよいが、位の寄与に注目すると速い。`,
+        });
+      } else if (kind === 5) {
+        // 方程式：整数解（思考）
+        const a = pick(rnd, [3, 4, 5]);
+        const b = pick(rnd, [6, 7, 8, 9]);
+        const x = pick(rnd, [1, 2, 3]);
+        const y = pick(rnd, [1, 2, 4]);
+        const cst = a * x + b * y;
+        const correct = `(${x},${y})`;
+        const wrong = [`(${y},${x})`, `(${x + 1},${y})`, `(${x},${y + 1})`, `(${x - 1},${y})`];
+        const { c, a: aidx } = force4Unique(rnd, correct, wrong, []);
+        add(bank, {
+          sub: "数学", level: "中", diff: "発展",
+          pattern: "algebra",
+          patternGroup: "math_diophantine_small",
+          q: `整数 x, y が ${a}x + ${b}y = ${cst} を満たす。次のうち成り立つ組はどれ？`,
+          c, a: aidx,
+          exp: `左辺に代入して一致するものを選ぶ。条件が整数なので候補を丁寧に検証する。`,
+        });
+      } else if (kind === 6) {
+        // 速さ：追いつき（条件整理）
+        const vA = pick(rnd, [60, 72, 80]);
+        const vB = pick(rnd, [48, 54, 64]);
+        const head = pick(rnd, [6, 8, 10, 12]); // km
+        const diff = vA - vB;
+        const t = head / diff; // hours
+        const correct = `${t}時間`;
+        const wrong = [`${head / vA}時間`, `${head / vB}時間`, `${(head / diff) * 60}分`, `${t + 1}時間`];
+        const { c, a } = force4Unique(rnd, correct, wrong, []);
+        add(bank, {
+          sub: "数学", level: "中", diff: "発展",
+          pattern: "word",
+          patternGroup: "math_speed_catchup",
+          q: `Aは時速${vA}km、Bは時速${vB}kmで同じ方向に進む。Bが${head}km先にいるとき、AがBに追いつくまでの時間は？`,
+          c, a,
+          exp: `相対速度（差）で距離を詰める。時間＝先行距離÷(速さの差)。`,
+        });
+      } else if (kind === 7) {
+        // 図形：相似の比（受験典型）
+        const k = pick(rnd, [2, 3, 4, 5]);
+        const s = pick(rnd, [2, 3]); // 相似比の倍率
+        const area1 = k * k;
+        const area2 = area1 * s * s;
+        const correct = `${area2}:${area1}`;
+        const wrong = [`${s}:${1}`, `${s * s}:${1}`, `${area1}:${area2}`, `${area2}:${s}`];
+        const { c, a } = force4Unique(rnd, `${s * s}:1`, wrong, [correct]);
+        add(bank, {
+          sub: "数学", level: "中", diff: "発展",
+          pattern: "geometry",
+          patternGroup: "math_similarity_area_ratio",
+          q: `2つの相似な図形があり、対応する辺の比が ${s}:1 である。面積の比は？`,
+          c, a,
+          exp: `相似比が s:1 なら面積比は s^2:1。`,
+        });
+      } else if (kind === 8) {
+        // 条件付き：平均と合計（思考）
+        const n0 = pick(rnd, [5, 6, 8, 10]);
+        const avg = pick(rnd, [62, 65, 68, 70, 72]);
+        const sum = n0 * avg;
+        const addScore = pick(rnd, [55, 60, 75, 80]);
+        const newAvg = Math.round(((sum + addScore) / (n0 + 1)) * 10) / 10;
+        const correct = `${newAvg}`;
+        const wrong = [`${avg}`, `${Math.round(((sum - addScore) / (n0 - 1)) * 10) / 10}`, `${Math.round((avg + addScore) / 2 * 10) / 10}`, `${newAvg + 1}`];
+        const { c, a } = force4Unique(rnd, correct, wrong, []);
+        add(bank, {
+          sub: "数学", level: "中", diff: "標準",
+          pattern: "stats",
+          patternGroup: "math_average_update",
+          q: `${n0}人の平均点が${avg}点だった。そこに${addScore}点の人が1人加わると、新しい平均点は？`,
+          c, a,
+          exp: `平均×人数＝合計点。合計に追加して人数で割る。`,
+        });
+      } else {
+        // 文章題：濃度（条件整理）
+        const total = pick(rnd, [200, 250, 300, 400]);
+        const pct = pick(rnd, [8, 10, 12, 15, 20]);
+        const solute = Math.round(total * pct / 100);
+        const addWater = pick(rnd, [50, 100, 150]);
+        const newPct = Math.round((solute / (total + addWater)) * 1000) / 10;
+        const correct = `${newPct}%`;
+        const wrong = [`${pct}%`, `${Math.max(0, newPct - 2)}%`, `${newPct + 2}%`, `${Math.round((addWater / (total + addWater)) * 1000) / 10}%`];
+        const { c, a } = force4Unique(rnd, correct, wrong, []);
+        add(bank, {
+          sub: "数学", level: "中", diff: "発展",
+          pattern: "word",
+          patternGroup: "math_concentration_dilution",
+          q: `${pct}%の食塩水が${total}gある。水を${addWater}g加えたときの濃度は？`,
+          c, a,
+          exp: `食塩の量は変わらない。食塩量＝${total}×${pct}/100=${solute}g。濃度＝${solute}/(${total}+${addWater})×100。`,
+        });
+      }
     }
-
-    // 縮尺（中学受験寄り：単位変換込み）
-    for (let i = 0; i < 90; i++) {
-      const scale = pick([25000, 50000, 100000], i); // 1:scale
-      const cm = pick([2, 3, 4, 5, 6, 8], i + 1);
-      // 実距離（cm）→ (cm * scale) cm → m → km
-      const real_cm = cm * scale;
-      const real_km = real_cm / 100000; // 100000cm=1km
-      const correct = `${real_km}km`;
-      const wrongs = [
-        `${real_km * 10}km`,
-        `${real_km / 10}km`,
-        `${(real_cm / 100)}m`,
-        `${(real_cm / 1000)}m`,
-      ];
-      const { c, a } = force4Unique(correct, wrongs, i, (i + 1) % 4);
-
-      add(bank, {
-        sub: "社会",
-        level: "中",
-        diff: "発展",
-        patternGroup: "soc_geo_scale",
-        pattern: "geo",
-        q: `地図の縮尺が1:${scale}で、地図上の距離が${cm}cmである。実際の距離として最も近いものは？`,
-        c, a,
-        exp: `実距離=${cm}cm×${scale}=${real_cm}cm。1km=100000cmより ${real_km}km。`,
-      });
-    }
-
-    // 歴史（流れ＋因果）
-    const hist = [
-      ["鎌倉幕府を開いた人物は？", "源頼朝", ["足利尊氏", "徳川家康", "豊臣秀吉"]],
-      ["江戸幕府を開いた人物は？", "徳川家康", ["織田信長", "足利義満", "源義経"]],
-      ["明治維新後に近代化が進んだ時代は？", "明治時代", ["平安時代", "室町時代", "鎌倉時代"]],
-      ["戦後に制定された憲法は？", "日本国憲法", ["大日本帝国憲法", "十七条の憲法", "御成敗式目"]],
-      ["江戸時代に身分や職業によって分けられたしくみを何という？", "身分制度", ["租庸調", "班田収授法", "三権分立"]],
-    ];
-    hist.forEach((it, i) => {
-      const [qText, correct, wrongs] = it;
-      const { c, a } = force4Unique(correct, wrongs, i, (i + 2) % 4);
-      add(bank, {
-        sub: "社会",
-        level: "中",
-        diff: "標準",
-        patternGroup: "soc_history_basic",
-        pattern: "history",
-        q: qText,
-        c, a,
-        exp: `歴史用語の基礎確認。正解は「${correct}」。`,
-      });
-    });
-
-    // 公民（思考：三権＋権利）
-    const civics = [
-      ["国会が法律を定める働きは？", "立法", ["行政", "司法", "自治"]],
-      ["内閣が政治を行い法律を実行する働きは？", "行政", ["立法", "司法", "自治"]],
-      ["裁判所が争いを裁く働きは？", "司法", ["立法", "行政", "自治"]],
-      ["裁判所が法令が憲法に反しないか判断する権限は？", "違憲審査権", ["国政調査権", "予算先議権", "地方自治"]],
-      ["基本的人権に関する説明として最も適切なのは？", "生まれながらに持つ権利として尊重される", ["国が気分で与える権利", "時代によって消える権利", "特定の身分だけが持つ権利"]],
-      ["納税は国民の三大義務の一つである。残り二つは？", "教育・勤労", ["自由・平等", "選挙・請願", "所有・契約"]],
-    ];
-    civics.forEach((it, i) => {
-      const [qText, correct, wrongs] = it;
-      const { c, a } = force4Unique(correct, wrongs, i, i % 4);
-      add(bank, {
-        sub: "社会",
-        level: "中",
-        diff: i % 3 === 0 ? "発展" : "標準",
-        patternGroup: "soc_civics_reasoning",
-        pattern: "civics",
-        q: qText,
-        c, a,
-        exp: `用語の定義と制度の関係を押さえる。正解は「${correct}」。`,
-      });
-    });
   }
 
   /* =========================
-   * Build
+   * 英語：文法の自然さ重視＋読解は内容把握（メタ選択肢なし）
+   * ========================= */
+  function genEnglish(bank, n, seedBase = 3000) {
+    const verbs = [
+      { base: "run", ing: "running", past: "ran", third: "runs" },
+      { base: "study", ing: "studying", past: "studied", third: "studies" },
+      { base: "play", ing: "playing", past: "played", third: "plays" },
+      { base: "write", ing: "writing", past: "wrote", third: "writes" },
+      { base: "make", ing: "making", past: "made", third: "makes" },
+    ];
+    const adjectives = [
+      { base: "tall", comp: "taller", sup: "tallest" },
+      { base: "fast", comp: "faster", sup: "fastest" },
+      { base: "easy", comp: "easier", sup: "easiest" },
+      { base: "careful", comp: "more careful", sup: "most careful" },
+      { base: "useful", comp: "more useful", sup: "most useful" },
+    ];
+
+    const readingPassages = [
+      {
+        text:
+          "Aya used to dislike math, but she started solving one problem every day. " +
+          "After a month, she noticed she could understand formulas more quickly. " +
+          "Now she studies with her friend and explains her ideas aloud.",
+        q1: { ask: "Why did Aya improve in math?", correct: "She practiced regularly and reflected on her learning.", wrongs: [
+          "She stopped studying and took more breaks.",
+          "She only memorized answers without understanding.",
+          "She avoided difficult problems completely.",
+        ]},
+        q2: { ask: "What does Aya do now when she studies?", correct: "She studies with a friend and explains her ideas aloud.", wrongs: [
+          "She studies alone and never speaks.",
+          "She only watches videos without solving problems.",
+          "She reads novels instead of studying.",
+        ]},
+      },
+      {
+        text:
+          "Tom missed the train because he left home late. " +
+          "He decided to prepare his bag the night before. " +
+          "Since then, he has arrived at the station on time.",
+        q1: { ask: "What caused Tom to miss the train?", correct: "He left home late.", wrongs: [
+          "He arrived too early.",
+          "He forgot where the station was.",
+          "He refused to take the train.",
+        ]},
+        q2: { ask: "What change helped Tom arrive on time?", correct: "He prepared his bag the night before.", wrongs: [
+          "He stopped using a bag.",
+          "He decided to walk to another city.",
+          "He never checked the time again.",
+        ]},
+      },
+    ];
+
+    for (let i = 0; i < n; i++) {
+      const rnd = mulberry32(seedBase + i);
+      const kind = i % 6;
+
+      if (kind === 0) {
+        // 現在進行形（now）
+        const v = pick(rnd, verbs);
+        const correct = `is ${v.ing}`;
+        const wrongs = [v.base, v.third, v.past, `are ${v.ing}`];
+        const { c, a } = force4Unique(rnd, correct, wrongs, [`was ${v.ing}`]);
+        add(bank, {
+          sub: "英語", level: "中", diff: "標準",
+          pattern: "grammar",
+          patternGroup: "eng_present_progressive",
+          q: `(   )に入る最も適切な語句は？ She (   ) ${v.base} now.`,
+          c, a,
+          exp: `now があるので現在進行形。主語が She なので is + -ing。`,
+        });
+      } else if (kind === 1) {
+        // 過去形（yesterday）※動詞は固定でwrite系にして不自然を避ける
+        const correct = "wrote";
+        const wrongs = ["write", "writes", "is writing", "will write"];
+        const { c, a } = force4Unique(rnd, correct, wrongs, ["was writing"]);
+        add(bank, {
+          sub: "英語", level: "中", diff: "標準",
+          pattern: "grammar",
+          patternGroup: "eng_past_simple",
+          q: `(   )に入る最も適切な語句は？ He (   ) a letter yesterday.`,
+          c, a,
+          exp: `yesterday があるので過去形。write の過去形は wrote。`,
+        });
+      } else if (kind === 2) {
+        // 三単現
+        const v = pick(rnd, verbs);
+        const correct = v.third;
+        const wrongs = [v.base, v.past, `is ${v.ing}`, `will ${v.base}`];
+        const { c, a } = force4Unique(rnd, correct, wrongs, []);
+        add(bank, {
+          sub: "英語", level: "中", diff: "標準",
+          pattern: "grammar",
+          patternGroup: "eng_third_person",
+          q: `(   )に入る最も適切な語は？ My brother (   ) soccer every day.`,
+          c, a,
+          exp: `主語が三人称単数なので動詞に-s が付く。`,
+        });
+      } else if (kind === 3) {
+        // 比較級（文意が通る形：backpackなどでも成立する形容詞に限定）
+        const ad = pick(rnd, adjectives);
+        const correct = ad.comp;
+        const wrongs = [ad.base, ad.sup, `most ${ad.base}`, `more ${ad.base}`].filter((x) => x !== correct);
+        const { c, a } = force4Unique(rnd, correct, wrongs, []);
+        add(bank, {
+          sub: "英語", level: "中", diff: "発展",
+          pattern: "grammar",
+          patternGroup: "eng_comparative",
+          q: `(   )に入る最も適切な語句は？ This backpack is (   ) than that one.`,
+          c, a,
+          exp: `than があるので比較級。${ad.base} の比較級は ${correct}。`,
+        });
+      } else if (kind === 4) {
+        // 前置詞（時間・場所）
+        const items = [
+          { sent: "We meet (   ) 7 o'clock.", correct: "at", wrongs: ["in", "on", "to"], exp: "時刻は at" },
+          { sent: "I was born (   ) April.", correct: "in", wrongs: ["at", "on", "to"], exp: "月は in" },
+          { sent: "She studies (   ) the library.", correct: "in", wrongs: ["at", "on", "to"], exp: "内部の場所は in" },
+          { sent: "I go to school (   ) bus.", correct: "by", wrongs: ["in", "on", "at"], exp: "交通手段は by" },
+        ];
+        const it = pick(rnd, items);
+        const { c, a } = force4Unique(rnd, it.correct, it.wrongs, ["from", "for", "with"]);
+        add(bank, {
+          sub: "英語", level: "中", diff: "標準",
+          pattern: "grammar",
+          patternGroup: "eng_preposition",
+          q: `(   )に入る最も適切な語は？ ${it.sent}`,
+          c, a,
+          exp: it.exp,
+        });
+      } else {
+        // 読解（内容把握）
+        const p = pick(rnd, readingPassages);
+        const qx = (i % 2 === 0) ? p.q1 : p.q2;
+        const { c, a } = force4Unique(rnd, qx.correct, qx.wrongs, []);
+        add(bank, {
+          sub: "英語", level: "中", diff: "発展",
+          pattern: "reading",
+          patternGroup: "eng_reading_content",
+          q: `次の英文を読んで質問に答えなさい。\n\n"${p.text}"\n\nQ: ${qx.ask}`,
+          c, a,
+          exp: `本文の根拠に基づいて選ぶ（言い換えに注意）。`,
+        });
+      }
+    }
+  }
+
+  /* =========================
+   * 理科：さらに難化（多段推論・資料読解・実験計画）
+   * - 公式ヒントは問題文に書かない
+   * ========================= */
+  function genScienceHard(bank, n, seedBase = 4000) {
+    for (let i = 0; i < n; i++) {
+      const rnd = mulberry32(seedBase + i);
+      const kind = i % 10;
+
+      if (kind === 0) {
+        // 圧力：単位変換（Pa）
+        const F = pick(rnd, [120, 150, 180, 200, 240, 300, 360, 450]);
+        const area_cm2 = pick(rnd, [4, 5, 6, 8, 10, 12, 15, 18, 20]);
+        const area_m2 = area_cm2 * 1e-4;
+        const p = Math.round(F / area_m2);
+
+        const { c, a } = force4Unique(
+          rnd, `${p}Pa`,
+          [`${p * 10}Pa`, `${Math.max(1, Math.round(p / 10))}Pa`, `${p + 5000}Pa`, `${Math.max(1, p - 5000)}Pa`],
+          []
+        );
+        add(bank, {
+          sub: "理科", level: "中", diff: "発展",
+          pattern: "physics",
+          patternGroup: "sci_pressure_unitconv",
+          q: `力が${F}Nで、面積が${area_cm2}cm²のときの圧力をPaで求めよ。`,
+          c, a,
+          exp: `面積をm²に直す（${area_cm2}cm²=${area_m2}m²）。圧力＝力/面積なので ${F}/${area_m2}=${p}Pa。`,
+        });
+      } else if (kind === 1) {
+        // 密度：浮沈（思考）
+        const densityObj = pick(rnd, [0.8, 0.9, 1.1, 1.2, 2.7, 7.9]);
+        const densityLiq = pick(rnd, [1.0, 1.2, 1.4]);
+        const correct = (densityObj < densityLiq) ? "浮く" : (densityObj > densityLiq ? "沈む" : "静止する");
+        const wrongs = ["沈む", "浮く", "静止する"].filter((x) => x !== correct);
+        const { c, a } = force4Unique(rnd, correct, wrongs, []);
+        add(bank, {
+          sub: "理科", level: "中", diff: "発展",
+          pattern: "physics",
+          patternGroup: "sci_density_float",
+          q: `密度が${densityObj}g/cm³の物体を、密度が${densityLiq}g/cm³の液体に入れた。物体のようすとして最も適切なものは？`,
+          c, a,
+          exp: `物体の密度が液体より小さいと浮き、大きいと沈む。等しい場合は静止する。`,
+        });
+      } else if (kind === 2) {
+        // 電気：直列・並列の合成抵抗（計算）
+        const R1 = pick(rnd, [2, 3, 4, 5, 6]);
+        const R2 = pick(rnd, [2, 3, 4, 6, 8]);
+        const mode = pick(rnd, ["series", "parallel"]);
+        const eq = (mode === "series") ? (R1 + R2) : (Math.round((R1 * R2) / (R1 + R2) * 10) / 10);
+
+        const correct = `${eq}Ω`;
+        const wrongs = [
+          `${Math.round((R1 * R2) * 10) / 10}Ω`,
+          `${Math.round((R1 / R2) * 10) / 10}Ω`,
+          `${Math.round((R2 / R1) * 10) / 10}Ω`,
+          `${Math.round((R1 + R2 + 1) * 10) / 10}Ω`,
+        ];
+        const { c, a } = force4Unique(rnd, correct, wrongs, []);
+        add(bank, {
+          sub: "理科", level: "中", diff: "発展",
+          pattern: "physics",
+          patternGroup: mode === "series" ? "sci_circuit_series_eqR" : "sci_circuit_parallel_eqR",
+          q: `抵抗${R1}Ωと抵抗${R2}Ωを${mode === "series" ? "直列" : "並列"}につないだときの合成抵抗は？`,
+          c, a,
+          exp: mode === "series"
+            ? `直列の合成抵抗は和。${R1}+${R2}=${eq}Ω。`
+            : `並列の合成抵抗は 1/R = 1/R1 + 1/R2。計算して ${eq}Ω。`,
+        });
+      } else if (kind === 3) {
+        // オーム：電圧/電流/抵抗（式ヒントはexpへ）
+        const R = pick(rnd, [3, 4, 5, 6, 8, 10, 12]);
+        const I = pick(rnd, [0.2, 0.3, 0.5, 0.8, 1.0, 1.2]);
+        const V = Math.round(R * I * 10) / 10;
+
+        const { c, a } = force4Unique(
+          rnd, `${V}V`,
+          [`${R}V`, `${I}V`, `${Math.round((V + 1) * 10) / 10}V`, `${Math.max(0, Math.round((V - 1) * 10) / 10)}V`],
+          []
+        );
+        add(bank, {
+          sub: "理科", level: "中", diff: "発展",
+          pattern: "physics",
+          patternGroup: "sci_ohm_basic",
+          q: `抵抗が${R}Ω、電流が${I}Aのとき、電圧は？`,
+          c, a,
+          exp: `電圧・電流・抵抗の関係より V＝IR。${R}×${I}=${V}V。`,
+        });
+      } else if (kind === 4) {
+        // 化学：質量保存＋反応の読み（概念）
+        const correct = "反応前後で全体の質量は変わらない";
+        const wrongs = [
+          "反応後は必ず質量が増える",
+          "反応後は必ず質量が減る",
+          "反応は質量と無関係に起きる",
+        ];
+        const { c, a } = force4Unique(rnd, correct, wrongs, []);
+        add(bank, {
+          sub: "理科", level: "中", diff: "標準",
+          pattern: "chemistry",
+          patternGroup: "sci_mass_conservation",
+          q: `密閉した容器内で化学変化が起きた。最も適切な説明はどれか？`,
+          c, a,
+          exp: `密閉系では質量保存が成り立つ（外へ出入りがない）。`,
+        });
+      } else if (kind === 5) {
+        // 溶解度：表読解＋推論（文中に表を埋め込む）
+        const t1 = pick(rnd, [10, 15, 20]);
+        const t2 = t1 + pick(rnd, [10, 15, 20]);
+        const v1 = pick(rnd, [18, 22, 26, 30]);
+        const v2 = v1 + pick(rnd, [8, 12, 16]);
+        const correct = "温度が上がると溶ける量が増える";
+        const wrongs = [
+          "温度が上がると溶ける量が減る",
+          "温度と溶ける量は無関係",
+          "温度が上がると必ず沈殿が増える",
+        ];
+        const { c, a } = force4Unique(rnd, correct, wrongs, []);
+        add(bank, {
+          sub: "理科", level: "中", diff: "発展",
+          pattern: "experiment",
+          patternGroup: "sci_solubility_table_inference",
+          q:
+`次の表は「水100gに溶ける物質Xの量（g）」である。表から言えることとして最も適切なものは？
+
+【表】
+温度 ${t1}℃：${v1}g
+温度 ${t2}℃：${v2}g`,
+          c, a,
+          exp: `表の増減から、温度上昇で溶解度が増えると判断できる。`,
+        });
+      } else if (kind === 6) {
+        // 実験計画：変える条件・そろえる条件（思考）
+        const correct = "他の条件をそろえて、1つの条件だけを変えて比較する";
+        const wrongs = [
+          "条件を同時にいくつも変えて結果を比べる",
+          "結果が出やすいように毎回違う道具を使う",
+          "測定は1回だけ行い平均は取らない",
+        ];
+        const { c, a } = force4Unique(rnd, correct, wrongs, []);
+        add(bank, {
+          sub: "理科", level: "中", diff: "発展",
+          pattern: "experiment",
+          patternGroup: "sci_experiment_control_variable",
+          q: `実験で「原因と結果」を確かめるときの条件設定として最も適切なものは？`,
+          c, a,
+          exp: `フェアな比較（対照実験）では、変数を1つに絞り、それ以外を統一する。`,
+        });
+      } else if (kind === 7) {
+        // 生物：光合成・呼吸（概念）
+        const correct = "光合成では二酸化炭素を取り入れ、酸素を放出する";
+        const wrongs = [
+          "光合成では酸素を取り入れ、二酸化炭素を放出する",
+          "呼吸では酸素を放出し、二酸化炭素を取り入れる",
+          "呼吸も光合成も酸素だけを取り入れる",
+        ];
+        const { c, a } = force4Unique(rnd, correct, wrongs, []);
+        add(bank, {
+          sub: "理科", level: "中", diff: "標準",
+          pattern: "biology",
+          patternGroup: "sci_bio_photosynthesis",
+          q: `植物の光合成について最も適切な説明はどれか？`,
+          c, a,
+          exp: `光合成は二酸化炭素と水から養分をつくり、酸素を放出する（条件：光）。`,
+        });
+      } else if (kind === 8) {
+        // 地学：前線と天気（思考）
+        const correct = "寒冷前線の通過では、短時間に強い雨が降りやすい";
+        const wrongs = [
+          "寒冷前線の通過では、雲が層状に広がりやすい",
+          "温暖前線の通過では、急に雷雨が起こりやすい",
+          "前線は天気の変化に影響しない",
+        ];
+        const { c, a } = force4Unique(rnd, correct, wrongs, []);
+        add(bank, {
+          sub: "理科", level: "中", diff: "発展",
+          pattern: "earth",
+          patternGroup: "sci_earth_front_weather",
+          q: `前線と天気の変化について最も適切なものは？`,
+          c, a,
+          exp: `寒冷前線は積乱雲が発達しやすく、短時間強雨になりやすい。温暖前線は層状雲・長雨になりやすい。`,
+        });
+      } else {
+        // エネルギー：仕事量・効率（思考）
+        const inE = pick(rnd, [200, 250, 300, 360, 400]);
+        const eff = pick(rnd, [0.6, 0.7, 0.75, 0.8]);
+        const outE = Math.round(inE * eff);
+        const correct = `${outE}J`;
+        const wrongs = [`${inE}J`, `${Math.round(inE * (1 - eff))}J`, `${outE + 50}J`, `${Math.max(1, outE - 50)}J`];
+        const { c, a } = force4Unique(rnd, correct, wrongs, []);
+        add(bank, {
+          sub: "理科", level: "中", diff: "発展",
+          pattern: "physics",
+          patternGroup: "sci_energy_efficiency",
+          q: `ある装置に${inE}Jのエネルギーを与えたところ、効率が${Math.round(eff * 100)}%だった。外に取り出せた有効なエネルギーは？`,
+          c, a,
+          exp: `効率＝有効/入力。よって有効＝入力×効率＝${inE}×${eff}=${outE}J。`,
+        });
+      }
+    }
+  }
+
+  /* =========================
+   * 社会：さらに難化（時差は東経西経必須・資料読解・公民の事例適用・経済の因果）
+   * ========================= */
+  function genSocialHard(bank, n, seedBase = 5000) {
+    const histOrder = [
+      {
+        items: ["鎌倉幕府の成立", "室町幕府の成立", "江戸幕府の成立", "明治維新"],
+        correct: "鎌倉→室町→江戸→明治",
+        wrongs: ["室町→鎌倉→江戸→明治", "江戸→室町→鎌倉→明治", "鎌倉→江戸→室町→明治"],
+        exp: "幕府成立の順と明治維新（1868）を押さえる。",
+      },
+      {
+        items: ["日清戦争", "日露戦争", "第一次世界大戦", "第二次世界大戦"],
+        correct: "日清→日露→第一次→第二次",
+        wrongs: ["日露→日清→第一次→第二次", "第一次→日清→日露→第二次", "日清→第一次→日露→第二次"],
+        exp: "近代戦争の並びを整理する。",
+      },
+    ];
+
+    const civicsCases = [
+      { q: "行政が国会の定めた法律に基づき政策を実行する。これはどの働きか？", correct: "行政", wrongs: ["立法", "司法", "自治"], exp: "法律を執行するのが行政。"},
+      { q: "憲法に反するかどうかを最終的に判断するのはどこか？", correct: "裁判所", wrongs: ["内閣", "国会", "都道府県"], exp: "違憲審査制は司法の役割。"},
+      { q: "地方公共団体が条例を定める根拠となる考え方は？", correct: "地方自治", wrongs: ["議院内閣制", "三権分立", "国民主権"], exp: "地域のことを地域で決める。"},
+      { q: "報道機関が政府の不正を追及する役割は、民主政治において何と呼ばれることが多いか？", correct: "第四の権力", wrongs: ["租税法律主義", "国政調査権", "地方分権"], exp: "メディアが権力監視を担う比喩。"},
+    ];
+
+    for (let i = 0; i < n; i++) {
+      const rnd = mulberry32(seedBase + i);
+      const kind = i % 10;
+
+      if (kind === 0) {
+        // 時差：旅行型（東経西経明示・日付またぎ要素）
+        const jp = { dir: "E", deg: 135 };
+        const dest = pick(rnd, [
+          { dir: "E", deg: 90 },
+          { dir: "E", deg: 150 },
+          { dir: "W", deg: 60 },
+          { dir: "W", deg: 90 },
+          { dir: "E", deg: 0 },
+        ]);
+
+        const depH = pick(rnd, [18, 19, 20, 21, 22, 23]);
+        const depM = pick(rnd, [0, 10, 20, 30, 40, 50]);
+        const flightH = pick(rnd, [6, 7, 8, 9, 10, 11]);
+
+        const depMin = toMin(depH, depM);
+        const arrLocal = toMin(depH + flightH, depM);
+
+        const diffDeg = lonToDeg(dest) - lonToDeg(jp);
+        const diffMin = Math.round((diffDeg / 15) * 60); // 15°で1h はexp側で言語化
+        const japanTimeAtArr = fromMin(arrLocal - diffMin);
+
+        const wrongs = [
+          fromMin(toMin(depH + flightH + 2, depM)),
+          fromMin(toMin(depH + flightH - 2, depM)),
+          fromMin(toMin(depH + flightH + 4, depM)),
+          fromMin(toMin(depH + flightH - 4, depM)),
+        ];
+        const { c, a } = force4Unique(rnd, japanTimeAtArr, wrongs, []);
+        add(bank, {
+          sub: "社会", level: "中", diff: "発展",
+          pattern: "geo",
+          patternGroup: "soc_geo_timezone_travel_overnight",
+          q: `日本（${formatLon(jp)}）を${fromMin(depMin)}に出発し、${formatLon(dest)}の都市に現地時刻で${fromMin(arrLocal)}に到着した（飛行時間${flightH}時間）。到着時の日本の時刻は？`,
+          c, a,
+          exp: `経度差から時差を求め、現地時刻を日本時刻へ換算する。経度の差は15°ごとに1時間。計算すると ${japanTimeAtArr}。`,
+        });
+      } else if (kind === 1) {
+        // 統計：高齢化率（表読解）
+        const u15 = pick(rnd, [120, 150, 180, 210, 240]);
+        const w15_64 = pick(rnd, [520, 600, 680, 720, 800]);
+        const o65 = pick(rnd, [200, 240, 280, 320, 360]);
+        const total = u15 + w15_64 + o65;
+        const rate = Math.round((o65 / total) * 1000) / 10;
+
+        const { c, a } = force4Unique(
+          rnd,
+          `${rate}%`,
+          [`${Math.max(0, rate - 5)}%`, `${rate + 5}%`, `${Math.round((u15 / total) * 1000) / 10}%`, `${Math.round((w15_64 / total) * 1000) / 10}%`],
+          []
+        );
+        add(bank, {
+          sub: "社会", level: "中", diff: "発展",
+          pattern: "geo",
+          patternGroup: "soc_geo_population_aging_rate",
+          q:
+`次の表はある地域の年齢区分別人口（千人）である。高齢化率（65歳以上人口/総人口）として最も近いものは？
+
+【表】
+0〜14歳：${u15}
+15〜64歳：${w15_64}
+65歳以上：${o65}`,
+          c, a,
+          exp: `総人口=${total}。高齢化率=${o65}/${total}×100=${rate}%。`,
+        });
+      } else if (kind === 2) {
+        // 地理：産業構造（資料読解＋推論）
+        const p1 = pick(rnd, [4, 6, 8, 10, 12]);
+        const p2 = pick(rnd, [18, 22, 28, 32, 38]);
+        const p3 = 100 - p1 - p2;
+        const correct = p3 > p2 ? "第三次産業の割合が第二次産業より高い" : "第三次産業の割合が第二次産業より低い";
+        const wrongs = [
+          "第一次産業の割合が最も高い",
+          "第二次産業の割合が最も高い",
+          "どの産業も同じ割合である",
+        ];
+        const { c, a } = force4Unique(rnd, correct, wrongs, []);
+        add(bank, {
+          sub: "社会", level: "中", diff: "発展",
+          pattern: "geo",
+          patternGroup: "soc_geo_industry_inference",
+          q:
+`次の割合（%）はA地域の就業者の産業別構成である。表から言えることとして最も適切なものは？
+
+第一次産業：${p1}%
+第二次産業：${p2}%
+第三次産業：${p3}%`,
+          c, a,
+          exp: `第三次と第二次を比較して判断する。`,
+        });
+      } else if (kind === 3) {
+        // 歴史：並べ替え（知識＋整理）
+        const it = pick(rnd, histOrder);
+        const { c, a } = force4Unique(rnd, it.correct, it.wrongs, []);
+        add(bank, {
+          sub: "社会", level: "中", diff: "発展",
+          pattern: "history",
+          patternGroup: "soc_hist_order",
+          q: `次の出来事を古い順に並べたものとして正しいものは？\n（${it.items.join("／")}）`,
+          c, a,
+          exp: it.exp,
+        });
+      } else if (kind === 4) {
+        // 歴史：史料読解（短い文の解釈）
+        const correct = "年貢などの負担が増え、生活が苦しくなる可能性がある";
+        const wrongs = [
+          "税がなくなり生活が必ず豊かになる",
+          "武士がいなくなり戦争が必ず起きる",
+          "外国との貿易が必ず停止する",
+        ];
+        const { c, a } = force4Unique(rnd, correct, wrongs, []);
+        add(bank, {
+          sub: "社会", level: "中", diff: "発展",
+          pattern: "history",
+          patternGroup: "soc_hist_source_inference",
+          q:
+`次のような記録がある。
+「今年は収穫が少ないのに、納める量は変わらない。家の者が食べる米が足りぬ。」
+この記録から考えられる状況として最も適切なものは？`,
+          c, a,
+          exp: `不作でも負担が固定されると生活が逼迫する。記録の因果を読み取る。`,
+        });
+      } else if (kind === 5) {
+        // 公民：事例適用
+        const it = pick(rnd, civicsCases);
+        const { c, a } = force4Unique(rnd, it.correct, it.wrongs, []);
+        add(bank, {
+          sub: "社会", level: "中", diff: "発展",
+          pattern: "civics",
+          patternGroup: "soc_civics_case",
+          q: it.q,
+          c, a,
+          exp: it.exp,
+        });
+      } else if (kind === 6) {
+        // 経済：需要・供給の変化（グラフなしで因果）
+        const correct = "需要が増えると、一般に価格と取引量は増える方向に働く";
+        const wrongs = [
+          "需要が増えると、一般に価格と取引量は減る方向に働く",
+          "供給が増えると、一般に価格は上がる方向に働く",
+          "需要と供給は価格に影響しない",
+        ];
+        const { c, a } = force4Unique(rnd, correct, wrongs, []);
+        add(bank, {
+          sub: "社会", level: "中", diff: "発展",
+          pattern: "civics",
+          patternGroup: "soc_econ_supply_demand_shift",
+          q: `ある商品の人気が急上昇し、買いたい人が増えた。市場の変化として最も適切な説明はどれか？`,
+          c, a,
+          exp: `需要増＝需要曲線が右へ。均衡では価格・取引量が増える方向。`,
+        });
+      } else if (kind === 7) {
+        // 地理：気候（降水差・季節性）
+        const rainy = pick(rnd, [220, 180, 160, 140, 120]);
+        const dry = pick(rnd, [20, 30, 40, 50, 60]);
+        const correct = "雨の多い季節と少ない季節の差が大きい";
+        const wrongs = [
+          "一年を通して降水量はほぼ一定である",
+          "乾季の方が雨季より降水量が多い",
+          "降水量は地形の影響を受けない",
+        ];
+        const { c, a } = force4Unique(rnd, correct, wrongs, []);
+        add(bank, {
+          sub: "社会", level: "中", diff: "発展",
+          pattern: "geo",
+          patternGroup: "soc_geo_climate_seasonality",
+          q: `ある地域の降水量（mm）が、雨の多い季節：${rainy}mm、雨の少ない季節：${dry}mmであった。このデータから言えることとして最も適切なものは？`,
+          c, a,
+          exp: `季節による降水差が大きい＝雨季・乾季のような季節性が強い可能性。`,
+        });
+      } else if (kind === 8) {
+        // 国際：輸出入のバランス（表読解）
+        const ex = pick(rnd, [80, 90, 100, 110, 120]);
+        const im = pick(rnd, [70, 85, 95, 105, 130]);
+        const correct = ex > im ? "貿易黒字" : (ex < im ? "貿易赤字" : "貿易収支は均衡");
+        const wrongs = ["貿易黒字", "貿易赤字", "貿易収支は均衡"].filter(x => x !== correct);
+        const { c, a } = force4Unique(rnd, correct, wrongs, []);
+        add(bank, {
+          sub: "社会", level: "中", diff: "発展",
+          pattern: "geo",
+          patternGroup: "soc_geo_trade_balance",
+          q:
+`次のデータ（単位：兆円）がある。
+輸出：${ex}
+輸入：${im}
+このときの貿易収支の状態として最も適切なものは？`,
+          c, a,
+          exp: `輸出>輸入なら黒字、輸出<輸入なら赤字、等しければ均衡。`,
+        });
+      } else {
+        // 公民：税の役割（ただの暗記で終わらせず説明型）
+        const correct = "公共サービスの費用を社会全体で負担する仕組みの一つになる";
+        const wrongs = [
+          "税は必ず個人に全額払い戻される仕組みである",
+          "税は裁判所が自由に決めることができる",
+          "税は払うほど所得が増える制度である",
+        ];
+        const { c, a } = force4Unique(rnd, correct, wrongs, []);
+        add(bank, {
+          sub: "社会", level: "中", diff: "標準",
+          pattern: "civics",
+          patternGroup: "soc_civics_tax_role_explain",
+          q: `税について最も適切な説明はどれか？`,
+          c, a,
+          exp: `税は教育・医療・インフラなどの公共サービスの財源。公平性や負担の配分が論点になる。`,
+        });
+      }
+    }
+  }
+
+  /* =========================
+   * 固定（最低限の代表）
+   * ========================= */
+  const FIXED = [
+    { sub: "国語", level: "中", diff: "標準", pattern: "vocab", patternGroup: "ja_fixed", q: "「一目瞭然」の意味として最も近いものは？", c: ["見ただけではっきり分かる", "一度見ても覚えられない", "目で見るのが難しい", "見ない方がよい"], a: 0, exp: "一目で明らか、という意味。" },
+    { sub: "数学", level: "中", diff: "標準", pattern: "function", patternGroup: "math_fixed", q: "一次関数 y = 2x + 1 の y切片は？", c: ["1", "2", "-1", "0"], a: 0, exp: "x=0のとき y=1。" },
+    { sub: "英語", level: "中", diff: "標準", pattern: "grammar", patternGroup: "eng_fixed", q: "(   )に入る最も適切な語は？ I (   ) to school every day.", c: ["go", "goes", "went", "going"], a: 0, exp: "I は三単現ではないので go。" },
+    { sub: "理科", level: "中", diff: "標準", pattern: "physics", patternGroup: "sci_fixed", q: "質量が一定のまま体積が小さくなると、密度はどうなるか？", c: ["大きくなる", "小さくなる", "変わらない", "0になる"], a: 0, exp: "密度＝質量/体積。体積が減ると密度は増える。" },
+    { sub: "社会", level: "中", diff: "標準", pattern: "civics", patternGroup: "soc_fixed", q: "国会が法律を定める働きを何という？", c: ["立法", "行政", "司法", "自治"], a: 0, exp: "法律をつくる＝立法。" },
+  ];
+
+  /* =========================
+   * BANK 組み立て
    * ========================= */
   function buildBank() {
     let bank = [];
 
-    genJapanese(bank);
-    genMath(bank);
-    genEnglish(bank);
-    genScience(bank);
-    genSocial(bank);
+    // 固定
+    FIXED.forEach((q) => add(bank, q));
 
-    // uid付与
+    // 生成（難化版）
+    genJapanese(bank, TARGET.国語, 1100);
+    genMathHard(bank, TARGET.数学, 2100);
+    genEnglish(bank, TARGET.英語, 3100);
+    genScienceHard(bank, TARGET.理科, 4100);
+    genSocialHard(bank, TARGET.社会, 5100);
+
+    // 検品
+    bank = bank.filter(validateQuestion);
+
+    // 教科別不足があれば追い足し（安全策）
+    function countSub(sub) {
+      return bank.filter((q) => q.sub === sub).length;
+    }
+    function topUp(sub) {
+      const need = Math.max(0, MIN_PER_SUBJECT - countSub(sub));
+      if (need <= 0) return;
+
+      const tmp = [];
+      if (sub === "国語") genJapanese(tmp, need + 60, 12000);
+      if (sub === "数学") genMathHard(tmp, need + 80, 22000);
+      if (sub === "英語") genEnglish(tmp, need + 60, 32000);
+      if (sub === "理科") genScienceHard(tmp, need + 100, 42000);
+      if (sub === "社会") genSocialHard(tmp, need + 100, 52000);
+
+      tmp.filter(validateQuestion).forEach((q) => add(bank, q));
+    }
+    SUBJECTS.forEach(topUp);
+
+    // uid再付与（念のため）
     bank.forEach((q) => {
       if (!q.uid) q.uid = makeUid(q);
     });
 
-    // schema/品質フィルタ
-    bank = bank.filter(validateQuestion);
-
-    // uid重複排除（内容同一の混入防止）
-    const seen = new Set();
-    const out = [];
-    for (const q of bank) {
-      const id = q.uid || makeUid(q);
-      if (seen.has(id)) continue;
-      seen.add(id);
-      out.push(q);
-    }
-    bank = out;
-
-    // 教科別統計
+    // 統計（確認用）
     const stats = {};
-    SUBJECTS.forEach((s) => (stats[s] = bank.filter((q) => q.sub === s).length));
-    console.log("[BANK stats]", stats, "total:", bank.length, "unique(uid):", seen.size);
+    SUBJECTS.forEach((s) => {
+      stats[s] = bank.filter((q) => q.sub === s).length;
+    });
+    const groups = {};
+    bank.forEach((q) => {
+      groups[q.patternGroup] = (groups[q.patternGroup] || 0) + 1;
+    });
+
+    console.log("[BANK stats]", stats, "total:", bank.length);
+    console.log("[BANK patternGroup count TOP25]", Object.entries(groups).sort((a, b) => b[1] - a[1]).slice(0, 25));
 
     return bank;
   }
