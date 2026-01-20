@@ -4,10 +4,9 @@
   /* =========================
    * 基本設定
    * ========================= */
-  const PASSPHRASE = String.fromCharCode(48, 50, 49, 55); // "0217"
+  const PASSPHRASE = String.fromCharCode(48, 50, 49, 55); // "0217"（表示しない）
   const LS_UNLOCK = "quiz_unlock_v2";
   const LS_HISTORY = "quiz_history_v2";
-  const LS_LAST_UIDS = "quiz_last_uids_v1"; // 直前回のuid集合（配列で保存）
   const HISTORY_MAX = 50;
 
   const SUBJECTS = ["国語", "数学", "英語", "理科", "社会"];
@@ -16,18 +15,6 @@
 
   const DIFF_TARGET = { "基礎": 0.2, "標準": 0.5, "発展": 0.3 };
   const DIFFS = ["基礎", "標準", "発展"];
-
-  // avoidSimilar の「実効」用：原則上限（ただし成立しない教科は自動緩和）
-  const DEFAULT_MAX_PER_GROUP = 2;
-
-  // 直前回と同じuidを「強く避ける」ペナルティ
-  const PENALTY_LAST_UID = 300; // 大きいほど避ける
-
-  // patternGroup偏りペナルティ
-  const PENALTY_GROUP_COUNT = 15;
-
-  // 相対的ランダム（同点を崩す）
-  const JITTER = 0.001;
 
   // pattern は内部コードのまま保持し、表示だけ日本語にする
   const PATTERN_LABEL = {
@@ -48,6 +35,9 @@
     function: "関数",
     geometry: "図形",
     proof: "証明",
+    map: "資料",
+    table: "表",
+    graph: "グラフ",
   };
   const labelPattern = (p) => {
     const key = String(p ?? "").replace(/^#/, "").trim();
@@ -62,7 +52,7 @@
   const clamp01 = (x) => Math.max(0, Math.min(1, x));
   const fmtPct = (x) => `${Math.round(clamp01(x) * 100)}%`;
   const fmtSec = (ms) => `${Math.round((ms || 0) / 1000)}秒`;
-  const fmtSec1 = (ms) => `${((ms || 0) / 1000).toFixed(1)}s`;
+  const fmtSec1 = (ms) => `${(ms / 1000).toFixed(1)}s`;
 
   const el = {
     unlockCard: () => $("unlockCard"),
@@ -75,6 +65,8 @@
     chkDiffB: () => $("chkDiffB"),
     chkDiffN: () => $("chkDiffN"),
     chkDiffA: () => $("chkDiffA"),
+
+    // （UI上は非表示にする想定。存在しなくても落ちない）
     chkAvoidSimilar: () => $("chkAvoidSimilar"),
     chkNoDup: () => $("chkNoDup"),
 
@@ -121,8 +113,158 @@
   }
 
   /* =========================
-   * bank.js ロード（uid/patternGroup 保険）
+   * table描画（q.table / Markdown表）
    * ========================= */
+
+  // #qText の直後に表コンテナを確保（無ければ作る）
+  function ensureTableContainer(afterEl, id) {
+    if (!afterEl) return null;
+    let node = document.getElementById(id);
+    if (node) return node;
+
+    node = document.createElement("div");
+    node.id = id;
+    node.className = "qTableWrap";
+    node.style.marginTop = "10px";
+
+    afterEl.insertAdjacentElement("afterend", node);
+    return node;
+  }
+
+  // { headers:[], rows:[[]], caption? } / { header, body } / 2D配列 / { cols, data } を吸収
+  function normalizeTableData(t) {
+    if (!t) return null;
+
+    // 2D配列
+    if (Array.isArray(t) && t.length && Array.isArray(t[0])) {
+      return { headers: t[0].map(String), rows: t.slice(1).map(r => r.map(String)) };
+    }
+
+    // 典型キー
+    const headers = t.headers || t.header || t.cols || t.columns;
+    const rows = t.rows || t.body || t.data;
+
+    if (Array.isArray(headers) && Array.isArray(rows)) {
+      const h = headers.map(String);
+      const r = rows.map((row) => Array.isArray(row) ? row.map(String) : [String(row)]);
+      return { headers: h, rows: r, caption: t.caption ? String(t.caption) : "" };
+    }
+
+    return null;
+  }
+
+  // Markdown表（|区切り）の簡易パース：連続する表ブロックを抽出し、描画
+  function extractMarkdownTables(text) {
+    const lines = String(text ?? "").split("\n");
+    const tables = [];
+    let buf = [];
+    const isTableLine = (ln) => /^\s*\|.*\|\s*$/.test(ln);
+
+    for (const ln of lines) {
+      if (isTableLine(ln)) {
+        buf.push(ln.trim());
+      } else {
+        if (buf.length >= 2) tables.push(buf.slice());
+        buf = [];
+      }
+    }
+    if (buf.length >= 2) tables.push(buf.slice());
+    return tables;
+  }
+
+  function parseMarkdownTable(lines) {
+    // | a | b | の形式
+    const parseRow = (ln) => ln.replace(/^\s*\|/, "").replace(/\|\s*$/, "").split("|").map(s => s.trim());
+    const rows = lines.map(parseRow).filter(r => r.some(x => x !== ""));
+    if (rows.length < 2) return null;
+
+    // 2行目が --- ならヘッダ区切り扱い
+    const isSep = (r) => r.every(c => /^:?-{3,}:?$/.test(c));
+    let headers = rows[0];
+    let body = rows.slice(1);
+
+    if (rows.length >= 3 && isSep(rows[1])) {
+      headers = rows[0];
+      body = rows.slice(2);
+    }
+    return { headers, rows: body };
+  }
+
+  function renderTableInto(container, tableData) {
+    if (!container) return;
+    container.innerHTML = "";
+    if (!tableData) return;
+
+    const { headers, rows, caption } = tableData;
+    const table = document.createElement("table");
+    table.className = "qTable";
+
+    if (caption) {
+      const cap = document.createElement("caption");
+      cap.textContent = caption;
+      table.appendChild(cap);
+    }
+
+    const thead = document.createElement("thead");
+    const trh = document.createElement("tr");
+    headers.forEach(h => {
+      const th = document.createElement("th");
+      th.textContent = String(h);
+      trh.appendChild(th);
+    });
+    thead.appendChild(trh);
+    table.appendChild(thead);
+
+    const tbody = document.createElement("tbody");
+    rows.forEach(r => {
+      const tr = document.createElement("tr");
+      r.forEach(cell => {
+        const td = document.createElement("td");
+        td.textContent = String(cell);
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+
+    container.appendChild(table);
+  }
+
+  function renderQuestionTables(q) {
+    // 1) 構造化 q.table があればそれを描画
+    const wrap = ensureTableContainer(el.qText(), "qTable");
+    if (!wrap) return;
+
+    const norm = normalizeTableData(q?.table);
+    if (norm) {
+      renderTableInto(wrap, norm);
+      return;
+    }
+
+    // 2) q.q に Markdown表が埋め込まれていれば描画（複数対応）
+    const mdTables = extractMarkdownTables(q?.q);
+    if (!mdTables.length) {
+      wrap.innerHTML = "";
+      return;
+    }
+
+    // 複数表がある場合は縦に積む
+    wrap.innerHTML = "";
+    mdTables.forEach((lines, idx) => {
+      const parsed = parseMarkdownTable(lines);
+      if (!parsed) return;
+
+      const subWrap = document.createElement("div");
+      if (idx > 0) subWrap.style.marginTop = "10px";
+      wrap.appendChild(subWrap);
+      renderTableInto(subWrap, parsed);
+    });
+  }
+
+  /* =========================
+   * bank.js ロード
+   * ========================= */
+  // bank.js 側で uid/patternGroup を付けるが、古いbankでも動くよう保険
   function normalizeText(s) {
     return String(s ?? "")
       .normalize("NFKC")
@@ -145,6 +287,7 @@
     if (!bank && typeof window.buildBank === "function") bank = window.buildBank();
     if (!Array.isArray(bank)) bank = [];
 
+    // key/uid/patternGroup 付与（無ければ）
     bank.forEach((q, i) => {
       if (!q) return;
       if (!q.key) q.key = `${q.sub}|${q.level}|${q.diff}|${q.pattern || "p"}|${(q.q || "").slice(0, 24)}|${i}`;
@@ -152,26 +295,7 @@
       if (!q.uid) q.uid = makeUid(q);
     });
 
-    // bank側でdedupe済みのはずだが、念のためuid重複が残っていれば落とす
-    const seen = new Set();
-    const ded = [];
-    for (const q of bank) {
-      if (!q?.uid) continue;
-      if (seen.has(q.uid)) continue;
-      seen.add(q.uid);
-      ded.push(q);
-    }
-
-    // 簡易ログ（BANK健全性確認）
-    const total = ded.length;
-    const perSub = SUBJECTS.map(s => {
-      const arr = ded.filter(q => q.sub === s);
-      return { sub: s, total: arr.length, groups: new Set(arr.map(x => x.patternGroup)).size };
-    });
-    console.log("[BANK loaded] total(uid-deduped):", total);
-    console.table(perSub);
-
-    return ded;
+    return bank;
   }
   const BANK = loadBank();
 
@@ -186,11 +310,11 @@
     shownAt: 0,
     timer: null,
     graded: false,
-    explainActive: null,
+    explainActive: null, // 解説番号のactive表示用
   };
 
   /* =========================
-   * LocalStorage（履歴＋直前回UID）
+   * LocalStorage（履歴）
    * ========================= */
   const isUnlocked = () => localStorage.getItem(LS_UNLOCK) === "1";
   const setUnlocked = () => localStorage.setItem(LS_UNLOCK, "1");
@@ -212,27 +336,12 @@
     saveHistory(arr);
   }
 
-  function loadLastUids() {
-    try {
-      const raw = localStorage.getItem(LS_LAST_UIDS);
-      const arr = raw ? JSON.parse(raw) : [];
-      return Array.isArray(arr) ? new Set(arr.map(String)) : new Set();
-    } catch {
-      return new Set();
-    }
-  }
-  function saveLastUids(uids) {
-    try {
-      const arr = Array.from(uids).slice(0, 200); // 念のため
-      localStorage.setItem(LS_LAST_UIDS, JSON.stringify(arr));
-    } catch {}
-  }
-
   /* =========================
    * UI 制御
    * ========================= */
   function setTopButtonsEnabled(enabled) {
-    if (el.btnHistoryTop()) el.btnHistoryTop().disabled = false;
+    if (el.btnHistoryTop()) el.btnHistoryTop().disabled = false; // 履歴は常に可
+
     if (el.btnNew()) el.btnNew().disabled = !enabled;
     if (el.btnReset()) el.btnReset().disabled = !enabled;
     if (el.btnGrade()) el.btnGrade().disabled = !enabled;
@@ -283,16 +392,14 @@
     if (el.chkDiffA()?.checked) res.push("発展");
     return res.length ? res : ["基礎", "標準", "発展"];
   }
+
+  // ★重要：ユーザーUIに依存せず、常時ON（非表示化しても挙動が変わらない）
   function getOptions() {
-    return {
-      avoidSimilar: el.chkAvoidSimilar() ? !!el.chkAvoidSimilar().checked : true,
-      noDup: el.chkNoDup() ? !!el.chkNoDup().checked : true,
-      maxPerGroup: DEFAULT_MAX_PER_GROUP,
-    };
+    return { avoidSimilar: true, noDup: true };
   }
 
   /* =========================
-   * 出題（実効：uid重複禁止＋patternGroup上限＋直前回回避）
+   * 出題（重複禁止＋テンプレ偏り回避＋不足時フォールバック）
    * ========================= */
   function shuffle(a) {
     for (let i = a.length - 1; i > 0; i--) {
@@ -302,28 +409,25 @@
     return a;
   }
 
-  function scoreCandidate(q, groupCount, lastUids) {
+  function scoreCandidate(q, usedUids, patternGroupCount, opts) {
     let s = 0;
 
-    // 直前回回避（強めペナルティ）
-    if (lastUids.has(q.uid)) s += PENALTY_LAST_UID;
+    // noDup：内容ベース（uid）重複を禁止
+    if (opts.noDup && usedUids.has(q.uid)) s += 1e9;
 
-    // patternGroup偏りペナルティ（カウントが増えるほど嫌う）
-    const g = q.patternGroup || q.pattern || "p";
-    s += (groupCount.get(g) || 0) * PENALTY_GROUP_COUNT;
+    // avoidSimilar：patternGroup で偏りを抑える
+    if (opts.avoidSimilar) {
+      const g = q.patternGroup || q.pattern || "p";
+      s += (patternGroupCount.get(g) || 0) * 10;
+    }
 
-    // 同点崩し
-    s += Math.random() * JITTER;
+    s += Math.random();
     return s;
   }
 
-  function distinctGroups(arr) {
-    return new Set(arr.map(q => q.patternGroup || q.pattern || "p")).size;
-  }
-
-  function choose5ForSubject(subject, grades, diffs, opts, usedUids, groupCount, lastUids) {
+  function choose5ForSubject(subject, grades, diffs, opts, usedUids, patternGroupCount) {
     // 基本候補
-    let pool = BANK.filter(q =>
+    let cands = BANK.filter(q =>
       q && q.sub === subject &&
       grades.includes(q.level) &&
       diffs.includes(q.diff) &&
@@ -331,31 +435,21 @@
       typeof q.a === "number"
     );
 
-    // 不足時フォールバック：diff→gradeを広げる
-    if (pool.length < QUIZ_PER_SUBJECT) {
+    // 不足時フォールバック（止めない）
+    if (cands.length < QUIZ_PER_SUBJECT) {
       const allDiffs = ["基礎", "標準", "発展"];
-      pool = BANK.filter(q => q && q.sub === subject && grades.includes(q.level) && allDiffs.includes(q.diff));
-      if (pool.length < QUIZ_PER_SUBJECT) {
-        const allGrades = ["小", "中"];
-        pool = BANK.filter(q => q && q.sub === subject && allGrades.includes(q.level) && allDiffs.includes(q.diff));
+      const allGrades = ["小", "中"];
+      cands = BANK.filter(q => q && q.sub === subject && grades.includes(q.level) && allDiffs.includes(q.diff));
+      if (cands.length < QUIZ_PER_SUBJECT) {
+        cands = BANK.filter(q => q && q.sub === subject && allGrades.includes(q.level) && allDiffs.includes(q.diff));
       }
     }
-    if (pool.length < QUIZ_PER_SUBJECT) {
-      throw new Error(`${subject} の問題が不足しています（BANKの素材不足）。`);
+
+    if (cands.length < QUIZ_PER_SUBJECT) {
+      throw new Error(`${subject} の問題が不足しています（bank.js を増量してください）。`);
     }
 
-    // noDup（実効）：既に選んだuidは候補から除外
-    if (opts.noDup) pool = pool.filter(q => !usedUids.has(q.uid));
-
-    // avoidSimilar 上限：成立しない教科のために「教科内群数」から自動上限を算出
-    const gN = distinctGroups(pool);
-    let localMaxPerGroup = opts.avoidSimilar ? Math.max(opts.maxPerGroup, Math.ceil(QUIZ_PER_SUBJECT / Math.max(1, gN))) : 999;
-
-    if (opts.avoidSimilar && localMaxPerGroup !== opts.maxPerGroup) {
-      console.log(`[quiz] ${subject} patternGroupが少ないため maxPerGroup を ${opts.maxPerGroup}→${localMaxPerGroup} に自動緩和（groups=${gN}）`);
-    }
-
-    // 難易度比率（教科内）
+    // 難易度比率をなるべく維持（教科内）
     const ideal = {
       "基礎": Math.round(QUIZ_PER_SUBJECT * DIFF_TARGET["基礎"]),
       "標準": Math.round(QUIZ_PER_SUBJECT * DIFF_TARGET["標準"]),
@@ -363,67 +457,31 @@
     };
 
     const chosen = [];
-    const localGroupCount = new Map();
+    let pool = cands.slice();
 
     for (let k = 0; k < QUIZ_PER_SUBJECT; k++) {
-      // 難易度優先を決める
       const counts = { "基礎": 0, "標準": 0, "発展": 0 };
       chosen.forEach(q => counts[q.diff]++);
+
       const preferred = DIFFS.slice().sort((a, b) => (ideal[b] - counts[b]) - (ideal[a] - counts[a]))[0];
+      let candidates = pool.filter(q => q.diff === preferred);
+      if (!candidates.length) candidates = pool;
 
-      // まず希望diffで候補を作る
-      let cands = pool.filter(q => q.diff === preferred);
-      if (!cands.length) cands = pool.slice();
-
-      // avoidSimilar（実効）：patternGroup上限に引っかかるものは候補から除外（ハード制約）
-      if (opts.avoidSimilar) {
-        cands = cands.filter(q => {
-          const g = q.patternGroup || q.pattern || "p";
-          const currentGlobal = groupCount.get(g) || 0;
-          const currentLocal = localGroupCount.get(g) || 0;
-          // globalは“全25問”での偏り、localは“この教科の5問”での偏り
-          // 厳しすぎると成立しないので、上限は localMaxPerGroup で揃える
-          return (currentLocal < localMaxPerGroup) && (currentGlobal < Math.max(localMaxPerGroup, opts.maxPerGroup));
-        });
-      }
-
-      // 直前回のuidを「禁止」までにすると成立しない場合があるため、ここは基本ペナルティで避ける
-      // ただし候補が十分にある時だけ“軽い除外”を行う（成立性を壊さない）
-      if (lastUids.size && cands.length > 25) {
-        const filtered = cands.filter(q => !lastUids.has(q.uid));
-        if (filtered.length >= 5) cands = filtered;
-      }
-
-      if (!cands.length) {
-        // 成立しない場合は「上限を一段緩め」て救済（ログを出す）
-        if (opts.avoidSimilar) {
-          localMaxPerGroup++;
-          console.warn(`[quiz] ${subject} で候補枯渇 → maxPerGroup を ${localMaxPerGroup} に緩和して続行`);
-          k--; // 同じ問題番号をもう一度選び直す
-          continue;
-        }
-        // それでもダメならプール全体で救済
-        cands = pool.slice();
-      }
-
-      // 最良候補（スコア最小）を選ぶ
       let best = null, bestScore = Infinity;
-      for (const q of cands) {
-        const s = scoreCandidate(q, groupCount, lastUids);
+      for (const q of candidates) {
+        const s = scoreCandidate(q, usedUids, patternGroupCount, opts);
         if (s < bestScore) { bestScore = s; best = q; }
       }
 
       chosen.push(best);
-
-      // usedUids & groupCount を更新
       usedUids.add(best.uid);
 
       const g = best.patternGroup || best.pattern || "p";
-      groupCount.set(g, (groupCount.get(g) || 0) + 1);
-      localGroupCount.set(g, (localGroupCount.get(g) || 0) + 1);
+      patternGroupCount.set(g, (patternGroupCount.get(g) || 0) + 1);
 
-      // プールから排除（noDup実効）
-      pool = pool.filter(q => q.uid !== best.uid);
+      // 1) 同一オブジェクト再抽選防止（key）
+      // 2) noDup 有効なら内容ベースでも排除（uid）
+      pool = pool.filter(q => q.key !== best.key && (!opts.noDup || q.uid !== best.uid));
     }
 
     return chosen;
@@ -433,34 +491,19 @@
     const grades = getSelectedGrades();
     const diffs = getSelectedDiffs();
     const opts = getOptions();
-    const lastUids = loadLastUids();
 
     const usedUids = new Set();
-    const groupCount = new Map();
+    const patternGroupCount = new Map();
     const quiz = [];
 
     for (const sub of SUBJECTS) {
-      quiz.push(...choose5ForSubject(sub, grades, diffs, opts, usedUids, groupCount, lastUids));
+      quiz.push(...choose5ForSubject(sub, grades, diffs, opts, usedUids, patternGroupCount));
     }
     shuffle(quiz);
 
-    // 生成確認ログ：patternGroup分布 + 直前回との被り
-    const groupDist = {};
-    for (const q of quiz) {
-      const g = q.patternGroup || q.pattern || "p";
-      groupDist[g] = (groupDist[g] || 0) + 1;
+    if (quiz.length !== TOTAL_Q) {
+      throw new Error(`出題生成に失敗（${quiz.length}/${TOTAL_Q}）`);
     }
-    console.log("[quiz] patternGroup distribution (this quiz):");
-    console.table(Object.entries(groupDist).sort((a,b)=>b[1]-a[1]).map(([g,n])=>({patternGroup:g,n})));
-
-    if (lastUids.size) {
-      const overlap = quiz.filter(q => lastUids.has(q.uid)).length;
-      console.log(`[quiz] overlap vs lastQuiz: ${overlap}/${TOTAL_Q} (${Math.round((overlap/TOTAL_Q)*100)}%)`);
-    } else {
-      console.log("[quiz] overlap vs lastQuiz: (no lastQuiz stored)");
-    }
-
-    if (quiz.length !== TOTAL_Q) throw new Error(`出題生成に失敗（${quiz.length}/${TOTAL_Q}）`);
     return quiz;
   }
 
@@ -475,11 +518,6 @@
       alert(String(e?.message || e));
       return;
     }
-
-    // 「直前回」を次回のために保存（生成時点で保存＝未採点でも“次の新規”で被りにくい）
-    const currentUids = new Set(state.quiz.map(q => q.uid));
-    saveLastUids(currentUids);
-
     state.answers = state.quiz.map(() => ({ chosen: null, timeMs: 0, visits: 0 }));
     state.i = 0;
     state.graded = false;
@@ -530,6 +568,7 @@
     if (el.qNo()) el.qNo().textContent = `Q${state.i + 1} / ${TOTAL_Q}`;
     if (el.progressFill()) el.progressFill().style.width = `${Math.round(((state.i + 1) / TOTAL_Q) * 100)}%`;
 
+    // chips（patternは日本語表示）
     if (el.qChips()) {
       const chips = [
         q.sub,
@@ -542,6 +581,10 @@
 
     if (el.qText()) el.qText().textContent = q.q || "";
 
+    // ★表があるなら描画（q.table または Markdown表）
+    renderQuestionTables(q);
+
+    // choices（必ず A/B/C/D + 選択肢文）
     if (el.choices()) {
       el.choices().innerHTML = "";
       const letters = ["A", "B", "C", "D"];
@@ -666,6 +709,7 @@
       avgTime,
       perSub: perSubComputed,
       perDiff: perDiffComputed,
+      analysis,
     };
 
     return { correct, acc, totalTime, avgTime, perSub: perSubComputed, perDiff: perDiffComputed, analysis, snapshot };
@@ -759,6 +803,7 @@
 
     drawRadar(el.radarCanvas(), SUBJECTS.map(s => res.perSub[s].acc));
 
+    // 解説番号：正誤/未回答で色分け + active
     if (el.explainList()) {
       el.explainList().innerHTML = "";
       state.quiz.forEach((_, idx) => {
@@ -793,9 +838,27 @@
     const correct = q.c[q.a];
     const ok = chosen !== null && chosen === q.a;
 
+    // 解説内にも表があるなら描画できるよう、ここでは q.q のMarkdown表を別枠に描く
+    // （q.table がある場合は正規化して出す）
+    let tableHtml = "";
+    const norm = normalizeTableData(q?.table);
+    if (norm) {
+      tableHtml = buildTableHtml(norm);
+    } else {
+      const mdTables = extractMarkdownTables(q?.q);
+      if (mdTables.length) {
+        const blocks = mdTables
+          .map(lines => parseMarkdownTable(lines))
+          .filter(Boolean)
+          .map(t => buildTableHtml(t));
+        tableHtml = blocks.join("");
+      }
+    }
+
     el.explainBox().innerHTML = `
       <div class="exTitle">Q${idx + 1}：${escapeHtml(q.sub)} / ${escapeHtml(q.level)} / ${escapeHtml(q.diff)}${q.pattern ? " / #" + escapeHtml(labelPattern(q.pattern)) : ""}</div>
-      <div class="exQ">${escapeHtml(q.q || "")}</div>
+      <div class="exQ">${escapeHtml(q.q || "").replace(/\n/g, "<br>")}</div>
+      ${tableHtml ? `<div class="exTable">${tableHtml}</div>` : ""}
       <div class="exRow"><span class="tag ${ok ? "ok" : "ng"}">${ok ? "正解" : "不正解"}</span></div>
       <div class="exRow"><b>あなた：</b>${escapeHtml(your)}</div>
       <div class="exRow"><b>正解：</b>${escapeHtml(correct)}</div>
@@ -810,6 +873,25 @@
         btn.classList.toggle("active", i === idx);
       });
     }
+  }
+
+  // 説明欄用：tableをHTML文字列で生成（escape済み）
+  function buildTableHtml(t) {
+    const headers = (t.headers || t.header || []).map(String);
+    const rows = (t.rows || t.body || []).map(r => Array.isArray(r) ? r.map(String) : [String(r)]);
+    const caption = t.caption ? String(t.caption) : "";
+
+    let h = `<table class="qTable">`;
+    if (caption) h += `<caption>${escapeHtml(caption)}</caption>`;
+    if (headers.length) {
+      h += `<thead><tr>${headers.map(x => `<th>${escapeHtml(x)}</th>`).join("")}</tr></thead>`;
+    }
+    h += `<tbody>`;
+    rows.forEach(r => {
+      h += `<tr>${r.map(x => `<td>${escapeHtml(x)}</td>`).join("")}</tr>`;
+    });
+    h += `</tbody></table>`;
+    return h;
   }
 
   /* =========================
