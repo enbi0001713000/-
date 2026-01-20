@@ -177,7 +177,7 @@
     { sub:"社会", level:"中", diff:"発展", pattern:"civics", patternGroup:"soc_civics_localgov", q:"地方公共団体が条例を制定できる根拠として最も適切なものは？", c:["地方自治の保障","国政調査権","内閣の総辞職","参議院の優越"], a:0, exp:"地方自治の本旨に基づく。" },
     { sub:"社会", level:"中", diff:"発展", pattern:"history", patternGroup:"soc_hist_world_war", q:"第一次世界大戦後に国際平和の維持を目的として設立された組織は？", c:["国際連盟","国際連合","NATO","EU"], a:0, exp:"第一次大戦後は国際連盟。" },
     { sub:"社会", level:"中", diff:"発展", pattern:"geo", patternGroup:"soc_geo_population", q:"人口ピラミッドで、少子高齢化が進んだ社会に多い形として最も適切なものは？", c:["つぼ型","富士山型","ピラミッド型","三角形型"], a:0, exp:"出生が少なく高齢が多い→つぼ型。" },
-    { sub:"社会", level:"中", diff:"発展", pattern:"civics", patternGroup:"soc_civics_rights", q:"公共の福祉により一定の制約を受けうる権利として最も適切なものは？", c:["表現の自由","拷問を受けない権利","思想・良心の自由（絶対）","法の下の平等（絶対）"], a:0, exp:"権利は公共の福祉で調整される（表現の自由も制約あり得る）。" },
+    { sub:"社会", level:"中", diff:"発展", pattern:"civics", patternGroup:"soc_civics_rights", q:"公共の福祉により一定の制約を受けうる権利として最も適切なものは？", c:["表現の自由","拷問を受けない権利","思想・良心の自由","法の下の平等"], a:0, exp:"権利は公共の福祉で調整される（表現の自由も制約あり得る）。" },
     { sub:"社会", level:"中", diff:"発展", pattern:"civics", patternGroup:"soc_civics_election", q:"比例代表制の特徴として最も適切なものは？", c:["得票率に応じて議席配分されやすい","必ず小選挙区で争う","死票が必ずゼロになる","無党派層が投票できない"], a:0, exp:"比例＝得票に比例しやすい仕組み。" },
     { sub:"社会", level:"中", diff:"発展", pattern:"geo", patternGroup:"soc_geo_trade", q:"貿易で輸入が輸出を上回る状態を何という？", c:["貿易赤字","貿易黒字","関税同盟","自由貿易協定"], a:0, exp:"輸入>輸出＝貿易赤字。" },
     { sub:"社会", level:"中", diff:"発展", pattern:"history", patternGroup:"soc_hist_culture", q:"江戸時代に町人文化が発達した都市として最も適切なものは？", c:["大坂","平城京","鎌倉","長安"], a:0, exp:"元禄文化など町人文化は上方（大坂・京都）中心。" },
@@ -207,3 +207,4 @@
 
   window.BANK = BANK;
 })();
+
