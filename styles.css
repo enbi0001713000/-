@@ -247,7 +247,11 @@ h2{margin:0 0 10px 0}
   background:var(--surface);
   cursor:pointer;
   font-weight:800;
+  color:var(--text);
   text-align:left;
+}
+.choice *{
+  color:inherit;
 }
 .choice:hover{filter:brightness(0.99)}
 .choice.selected{
