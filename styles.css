@@ -4,6 +4,8 @@
   --surface:#ffffff;
   --surface-muted:#f2efe7;
   --surface-alt:#fbf8f1;
+  --action-bg:#f2efe7;
+  --action-text:var(--text);
   --text:#0c1b2a;
   --muted:#5c6775;
   --border:rgba(0,0,0,0.10);
@@ -14,7 +16,10 @@
   --radius:18px;
   --topbar-bg:rgba(251,247,239,0.85);
   --progress-bg:#f1ede3;
+  --progress-fill:linear-gradient(90deg, #0b3a79, #3b82f6);
   --ghost-bg:#ffffff;
+  --logo-bg:var(--primary);
+  --logo-text:#ffffff;
   --table-border:rgba(0,0,0,0.12);
   --table-head:rgba(0,0,0,0.04);
   --mini-na-bg:rgba(0,0,0,0.06);
@@ -43,8 +48,10 @@ body{
   --bg:#0a1330;
   --card:#0f1b3f;
   --surface:#101f46;
-  --surface-muted:#172a5d;
+  --surface-muted:#1f3572;
   --surface-alt:#1c2f66;
+  --action-bg:#3559c7;
+  --action-text:#f5f7ff;
   --text:#f5f7ff;
   --muted:#b3c2e6;
   --border:rgba(255,255,255,0.16);
@@ -54,7 +61,10 @@ body{
   --shadow:0 12px 28px rgba(0,0,0,0.45);
   --topbar-bg:rgba(11,19,48,0.85);
   --progress-bg:#132351;
-  --ghost-bg:#101f46;
+  --progress-fill:var(--action-bg);
+  --ghost-bg:var(--action-bg);
+  --logo-bg:#ffffff;
+  --logo-text:#0a1330;
   --table-border:rgba(255,255,255,0.2);
   --table-head:rgba(255,255,255,0.08);
   --mini-na-bg:rgba(255,255,255,0.08);
@@ -87,8 +97,8 @@ body{
 .brand{display:flex;gap:12px;align-items:center}
 .logo{
   width:44px;height:44px;border-radius:14px;
-  background:var(--primary);
-  color:#fff;
+  background:var(--logo-bg);
+  color:var(--logo-text);
   display:grid;place-items:center;
   font-weight:800;
 }
@@ -134,6 +144,10 @@ h2{margin:0 0 10px 0}
   padding:12px 14px;
   border-radius:14px;
   border:1px solid var(--border);
+  background:var(--action-bg);
+  cursor:pointer;
+  font-weight:700;
+  color:var(--action-text);
   background:var(--surface-muted);
   cursor:pointer;
   font-weight:700;
@@ -145,6 +159,11 @@ h2{margin:0 0 10px 0}
   background: linear-gradient(180deg, var(--primary2), var(--primary));
   border-color:rgba(0,0,0,0.08);
   color:#fff;
+}
+:root[data-theme="dark"] .btn.primary{
+  background:#ffffff;
+  color:#0a1330;
+  border-color:rgba(255,255,255,0.65);
 }
 .btn.ghost{
   background:var(--ghost-bg);
@@ -260,7 +279,7 @@ h2{margin:0 0 10px 0}
 }
 .progressFill{
   height:100%;
-  background: linear-gradient(90deg, #0b3a79, #3b82f6);
+  background:var(--progress-fill);
 }
 
 .resultSummary .scoreBig{
