@@ -1149,10 +1149,8 @@
     const next = theme === "dark" ? "dark" : "light";
     if (next === "dark") {
       document.documentElement.setAttribute("data-theme", "dark");
-      document.body.setAttribute("data-theme", "dark");
     } else {
       document.documentElement.removeAttribute("data-theme");
-      document.body.removeAttribute("data-theme");
     }
     if (el.btnTheme()) {
       el.btnTheme().textContent = next === "dark" ? "ライトモード" : "ダークモード";
@@ -1176,10 +1174,7 @@
   }
 
   function toggleTheme() {
-    const current = document.documentElement.getAttribute("data-theme") === "dark"
-      || document.body.getAttribute("data-theme") === "dark"
-      ? "dark"
-      : "light";
+    const current = document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
     applyTheme(current === "dark" ? "light" : "dark");
   }
 
