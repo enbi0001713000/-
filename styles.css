@@ -39,7 +39,7 @@ body{
   color:var(--text);
 }
 
-body[data-theme="dark"]{
+:root[data-theme="dark"]{
   --bg:#0a1330;
   --card:#0f1b3f;
   --surface:#101f46;
