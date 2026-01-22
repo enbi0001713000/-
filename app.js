@@ -340,7 +340,7 @@
   const setUnlocked = () => localStorage.setItem(LS_UNLOCK, "1");
   const getUserName = () => localStorage.getItem(LS_NAME) || "";
   const setUserName = (name) => localStorage.setItem(LS_NAME, name);
-
+  
   function requestNameIfNeeded() {
     if (getUserName()) return;
     const input = window.prompt("名前を入力してください");
