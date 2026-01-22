@@ -429,6 +429,66 @@
     { sub:"社会", level:"中", diff:"発展", pattern:"geo", patternGroup:"soc_eu", q:"EUとは何の略称？", c:["ヨーロッパ連合","東南アジア連合","北米貿易協定","世界銀行"], a:0, exp:"European Union。" },
     { sub:"社会", level:"中", diff:"発展", pattern:"civics", patternGroup:"soc_inflation", q:"インフレーションの説明として正しいものは？", c:["物価が継続的に上がる","物価が下がり続ける","失業がゼロになる","税金がなくなる"], a:0, exp:"インフレ=物価上昇。" },
     { sub:"社会", level:"中", diff:"発展", pattern:"geo", patternGroup:"soc_timezones_basic", q:"地球はおよそ何度で1時間の時差が生じる？", c:["15度","30度","24度","10度"], a:0, exp:"360度/24時間=15度。" },
+
+    /* ========= 追加 発展 国語 10 ========= */
+    { sub:"国語", level:"小", diff:"発展", pattern:"reading", patternGroup:"ja_logic_wordplay", q:"文「彼は“手が早い”から料理が得意だ。」の“手が早い”の意味として最も適切なのは？", c:["作業が速い","気が短い","字が上手い","手が大きい"], a:0, exp:"文脈より作業の速さ。" },
+    { sub:"国語", level:"小", diff:"発展", pattern:"reading", patternGroup:"ja_inference", q:"文「雨が上がり、道に水たまりが残っていた。」から分かることは？", c:["さっきまで雨だった","これから雨が降る","道が乾いている","雪が降っていた"], a:0, exp:"水たまり=直前の雨。" },
+    { sub:"国語", level:"中", diff:"発展", pattern:"logic", patternGroup:"ja_logic_negation", q:"「すべてのAはBである」の否定として正しいものは？", c:["AでありBでないものがある","AはすべてBではない","BはすべてAである","Aは存在しない"], a:0, exp:"全称命題の否定は存在命題。" },
+    { sub:"国語", level:"中", diff:"発展", pattern:"reading", patternGroup:"ja_reading_analogy", q:"「雨が降る→地面がぬれる」と同様の関係は？", c:["氷がとける→水になる","夜になる→太陽が昇る","火を消す→明るくなる","魚が泳ぐ→空を飛ぶ"], a:0, exp:"原因→結果の対応。" },
+    { sub:"国語", level:"中", diff:"発展", pattern:"vocab", patternGroup:"ja_vocab_context2", q:"「彼の発言は刺激的だが、根拠が薄い。」の「刺激的」に最も近い意味は？", c:["人の関心を強く引く","穏やかで静か","古くさい","内容が同じ"], a:0, exp:"刺激的=注意を引く。" },
+    { sub:"国語", level:"中", diff:"発展", pattern:"grammar", patternGroup:"ja_sentence_refine3", q:"次の文のより適切な表現は？「目的を忘れ、手段が主になった。」", c:["手段が目的化した。","目的が手段化した。","手段が消えた。","目的が達成された。"], a:0, exp:"本末転倒の表現。" },
+    { sub:"国語", level:"小", diff:"発展", pattern:"reading", patternGroup:"ja_word_order", q:"語順を入れ替えて意味が最も自然な文は？「(1)早く (2)宿題を (3)終えた」", c:["2-1-3","1-2-3","3-1-2","2-3-1"], a:1, exp:"早く宿題を終えた。" },
+    { sub:"国語", level:"中", diff:"発展", pattern:"logic", patternGroup:"ja_logic_condition", q:"「AならばB。Bでない。」から導ける結論は？", c:["Aでない","Aである","Bである","結論は出ない"], a:0, exp:"対偶でAでない。" },
+    { sub:"国語", level:"小", diff:"発展", pattern:"reading", patternGroup:"ja_inference_emotion", q:"文「彼は答案を見て、思わず息をのんだ。」から推測できる心情は？", c:["驚いた","退屈した","怒りが消えた","眠くなった"], a:0, exp:"息をのむ=驚き。" },
+    { sub:"国語", level:"中", diff:"発展", pattern:"vocab", patternGroup:"ja_vocab_nuance", q:"「軽率」の意味として最も適切なものは？", c:["考えが浅い","慎重である","重くて動かない","知識が深い"], a:0, exp:"軽率=考えが浅い。" },
+
+    /* ========= 追加 発展 数学 10 ========= */
+    { sub:"数学", level:"小", diff:"発展", pattern:"logic", patternGroup:"math_pattern_sequence", q:"1,2,4,7,11,16 の次の数は？", c:["22","21","23","24"], a:0, exp:"差が1,2,3,4,5なので次は+6。" },
+    { sub:"数学", level:"小", diff:"発展", pattern:"logic", patternGroup:"math_word_logic", q:"AはBより重く、CはAより軽い。BとCの関係は？", c:["Bが必ず重いとは限らない","Bが必ず重い","Cが必ず重い","BとCは同じ"], a:0, exp:"BとCは比較不能。" },
+    { sub:"数学", level:"小", diff:"発展", pattern:"geometry", patternGroup:"math_perimeter_compare", q:"同じ周の長さの正方形と長方形(縦1:横3)。面積が大きいのは？", c:["正方形","長方形","同じ","条件不足"], a:0, exp:"周長一定なら正方形が最大。" },
+    { sub:"数学", level:"中", diff:"発展", pattern:"algebra", patternGroup:"math_quadratic_min", q:"y=x^2−6x+5 の最小値は？", c:["−4","−5","4","5"], a:0, exp:"平方完成で(x-3)^2-4。" },
+    { sub:"数学", level:"中", diff:"発展", pattern:"algebra", patternGroup:"math_quadratic_solve", q:"x^2−5x+6=0 の解のうち小さい方は？", c:["2","3","−2","−3"], a:0, exp:"因数分解で(x-2)(x-3)。" },
+    { sub:"数学", level:"中", diff:"発展", pattern:"geometry", patternGroup:"math_circle_chord", q:"半径5の円で弦の長さが8。中心から弦までの距離は？", c:["3","4","2","1"], a:0, exp:"半弦4で5^2−4^2=9。" },
+    { sub:"数学", level:"中", diff:"発展", pattern:"probability", patternGroup:"math_probability_conditional", q:"袋に赤3、青2。1個取り出して戻さずもう1個。2個とも赤の確率は？", c:["3/10","1/2","9/25","2/5"], a:0, exp:"3/5×2/4=3/10。" },
+    { sub:"数学", level:"中", diff:"発展", pattern:"function", patternGroup:"math_linear_equation_applied", q:"一次関数 y=2x+b が点(3,7)を通る。bは？", c:["1","−1","2","5"], a:0, exp:"7=6+b→b=1。" },
+    { sub:"数学", level:"小", diff:"発展", pattern:"logic", patternGroup:"math_work_backwards", q:"ある数に4を足して3倍すると30になる。元の数は？", c:["6","5","4","7"], a:0, exp:"(x+4)×3=30→x=6。" },
+    { sub:"数学", level:"中", diff:"発展", pattern:"algebra", patternGroup:"math_equation_ratio", q:"x:y=2:3、x+y=25 のときxは？", c:["10","12","15","8"], a:0, exp:"2k+3k=25→k=5→x=10。" },
+
+    /* ========= 追加 発展 英語 10 ========= */
+    { sub:"英語", level:"小", diff:"発展", pattern:"reading", patternGroup:"eng_infer_context", q:"Read: \"Ken forgot his umbrella, so he got wet.\" Why did he get wet?", c:["He forgot his umbrella.","It was sunny.","He was swimming.","He lent his umbrella."], a:0, exp:"忘れたため濡れた。" },
+    { sub:"英語", level:"小", diff:"発展", pattern:"grammar", patternGroup:"eng_question_word", q:"Choose the correct word: (   ) did you go yesterday? — To the zoo.", c:["Where","When","Who","Why"], a:0, exp:"場所=Where。" },
+    { sub:"英語", level:"小", diff:"発展", pattern:"vocab", patternGroup:"eng_word_choice", q:"Choose the best word: I (   ) my homework before dinner.", c:["finished","finishing","finishes","finish"], a:0, exp:"過去の完了はfinished。" },
+    { sub:"英語", level:"中", diff:"発展", pattern:"grammar", patternGroup:"eng_relative_clause", q:"Choose the correct form: This is the book (   ) I bought.", c:["that","who","where","when"], a:0, exp:"物はthat。" },
+    { sub:"英語", level:"中", diff:"発展", pattern:"grammar", patternGroup:"eng_second_conditional", q:"Choose the correct form: If I were you, I (   ) study more.", c:["would","will","am","did"], a:0, exp:"仮定法過去はwould。" },
+    { sub:"英語", level:"中", diff:"発展", pattern:"reading", patternGroup:"eng_read_infer", q:"Read: \"She left early so that she could catch the first train.\" Why did she leave early?", c:["To catch the first train.","She was angry.","She missed the train.","She overslept."], a:0, exp:"目的は始発に乗るため。" },
+    { sub:"英語", level:"中", diff:"発展", pattern:"grammar", patternGroup:"eng_passive_question", q:"Choose the correct form: The window (   ) by the wind.", c:["was broken","broke","breaks","is break"], a:0, exp:"受け身=was broken。" },
+    { sub:"英語", level:"中", diff:"発展", pattern:"vocab", patternGroup:"eng_nuance", q:"Choose the closest meaning of \"reduce\".", c:["decrease","increase","decide","return"], a:0, exp:"reduce=decrease。" },
+    { sub:"英語", level:"小", diff:"発展", pattern:"reading", patternGroup:"eng_order_logic", q:"Read: \"First, open the box. Then, take out the toy.\" What should you do first?", c:["Open the box.","Take out the toy.","Close the box.","Throw the box."], a:0, exp:"最初に箱を開ける。" },
+    { sub:"英語", level:"中", diff:"発展", pattern:"grammar", patternGroup:"eng_present_perfect_exp", q:"Choose the correct form: I have (   ) this movie before.", c:["seen","saw","see","seeing"], a:0, exp:"現在完了=have seen。" },
+
+    /* ========= 追加 発展 理科 10 ========= */
+    { sub:"理科", level:"小", diff:"発展", pattern:"physics", patternGroup:"sci_lever", q:"てこで支点から遠い所に力を加えるとどうなる？", c:["小さい力で動かせる","大きい力が必要","動かせない","必ず速く動く"], a:0, exp:"腕が長いほど小さい力。" },
+    { sub:"理科", level:"小", diff:"発展", pattern:"earth", patternGroup:"sci_weather_map", q:"天気図で等圧線の間隔が狭いとき起こりやすいことは？", c:["強い風","弱い風","快晴","無風"], a:0, exp:"気圧差が大きいと強風。" },
+    { sub:"理科", level:"小", diff:"発展", pattern:"biology", patternGroup:"sci_ecosystem_balance", q:"ある地域でカエルが急に減ると増えやすい生き物は？", c:["昆虫","ヘビ","タカ","水草"], a:0, exp:"捕食者が減れば餌が増える。" },
+    { sub:"理科", level:"中", diff:"発展", pattern:"physics", patternGroup:"sci_force_balance", q:"水平な台の上で静止している本に働く力として正しい組み合わせは？", c:["重力と垂直抗力","重力と摩擦力","張力と浮力","電気力と磁力"], a:0, exp:"重力と床からの抗力。" },
+    { sub:"理科", level:"中", diff:"発展", pattern:"chemistry", patternGroup:"sci_mole_ratio", q:"反応式 2H₂+O₂→2H₂O でH₂が4mol、O₂が1molある。できる水は何mol？", c:["2mol","1mol","3mol","4mol"], a:0, exp:"O₂が不足、1molで水2mol。" },
+    { sub:"理科", level:"中", diff:"発展", pattern:"earth", patternGroup:"sci_pressure_depth", q:"水深が深くなるほど水圧はどうなる？", c:["大きくなる","小さくなる","変わらない","0になる"], a:0, exp:"深さに比例して増加。" },
+    { sub:"理科", level:"中", diff:"発展", pattern:"biology", patternGroup:"sci_genetics", q:"親の遺伝子がA a、B b のとき、子にa b が両方受け継がれる確率は？", c:["1/4","1/2","3/4","1/8"], a:0, exp:"aを1/2、bを1/2で1/4。" },
+    { sub:"理科", level:"小", diff:"発展", pattern:"chemistry", patternGroup:"sci_solution_concentration", q:"濃さが同じ食塩水AとBを混ぜても濃さが変わらないのはなぜ？", c:["食塩と水の比が同じだから","量が増えるから","温度が上がるから","塩が蒸発するから"], a:0, exp:"比が同じなので濃さ一定。" },
+    { sub:"理科", level:"中", diff:"発展", pattern:"physics", patternGroup:"sci_energy_conversion", q:"落下中の物体で増えるエネルギーは？", c:["運動エネルギー","位置エネルギー","化学エネルギー","電気エネルギー"], a:0, exp:"落下で運動エネルギー増。" },
+    { sub:"理科", level:"中", diff:"発展", pattern:"earth", patternGroup:"sci_seismic_wave", q:"P波とS波で速く伝わるのはどちら？", c:["P波","S波","同じ","条件による"], a:0, exp:"P波が速い。" },
+
+    /* ========= 追加 発展 社会 10 ========= */
+    { sub:"社会", level:"小", diff:"発展", pattern:"geo", patternGroup:"soc_map_scale_reason", q:"縮尺が小さい地図ほど何が広い？", c:["表す範囲","1cmの実距離","地図の紙面","道路の数"], a:0, exp:"縮尺が小さいほど広域。" },
+    { sub:"社会", level:"小", diff:"発展", pattern:"history", patternGroup:"soc_history_reasoning", q:"稲作が広まると村の暮らしが変わった理由として最も適切なのは？", c:["定住が必要になった","狩りが増えた","移動が早くなった","交易が減った"], a:0, exp:"稲作は定住が基本。" },
+    { sub:"社会", level:"中", diff:"発展", pattern:"civics", patternGroup:"soc_budget_tradeoff", q:"公共事業費を増やすと起こりうる影響として適切なのは？", c:["景気刺激と財政負担の増加","必ず税が下がる","物価が必ず下がる","失業が必ずゼロ"], a:0, exp:"効果と負担の両面。" },
+    { sub:"社会", level:"中", diff:"発展", pattern:"geo", patternGroup:"soc_population_policy", q:"高齢化が進む地域で労働力不足を補う方法として適切なのは？", c:["女性や高齢者の就労促進","出生率の即時上昇","人口移動の禁止","農地の放棄"], a:0, exp:"就労促進や人材確保。" },
+    { sub:"社会", level:"中", diff:"発展", pattern:"history", patternGroup:"soc_history_compare", q:"明治維新と戦後改革の共通点として正しいものは？", c:["制度を大きく変えた","武士が復活した","鎖国を強化した","貴族政治が続いた"], a:0, exp:"制度改革が共通。" },
+    { sub:"社会", level:"小", diff:"発展", pattern:"civics", patternGroup:"soc_rules_reasoning", q:"ルールが必要な理由として最も適切なのは？", c:["みんなの権利を守るため","自由をなくすため","争いを増やすため","仕事を減らすため"], a:0, exp:"権利の調整が目的。" },
+    { sub:"社会", level:"中", diff:"発展", pattern:"geo", patternGroup:"soc_trade_off", q:"輸入に頼りすぎると起こりうる問題は？", c:["為替変動で価格が不安定","必ず食料が余る","国内産業が必ず成長","環境問題が消える"], a:0, exp:"為替や供給の影響を受ける。" },
+    { sub:"社会", level:"中", diff:"発展", pattern:"civics", patternGroup:"soc_constitution_balance", q:"人権と公共の福祉の関係として正しいものは？", c:["権利は他者の権利と調整される","権利は常に無制限","公共の福祉は不要","権利は国が与えるだけ"], a:0, exp:"権利は公共の福祉で調整。" },
+    { sub:"社会", level:"小", diff:"発展", pattern:"geo", patternGroup:"soc_industry_reasoning", q:"山が多い地域で林業が盛んになりやすい理由は？", c:["森林資源が多い","平地が広い","雨が降らない","海が近い"], a:0, exp:"森林資源が豊富。" },
+    { sub:"社会", level:"中", diff:"発展", pattern:"history", patternGroup:"soc_history_cause_effect", q:"世界恐慌が日本の政策に与えた影響として適切なのは？", c:["経済立て直し策が強化された","鎖国が復活した","領土を放棄した","産業が停止した"], a:0, exp:"不況対策が進められた。" },
   ];
 
   const BANK = DATA.map((q, i) => {
