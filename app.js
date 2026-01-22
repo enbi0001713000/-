@@ -340,6 +340,15 @@
   const setUnlocked = () => localStorage.setItem(LS_UNLOCK, "1");
   const getUserName = () => localStorage.getItem(LS_NAME) || "";
   const setUserName = (name) => localStorage.setItem(LS_NAME, name);
+  
+  function requestNameIfNeeded() {
+    if (getUserName()) return;
+    const input = window.prompt("名前を入力してください");
+    const name = (input || "").trim();
+    if (name) {
+      setUserName(name);
+    }
+  }
 
   function loadHistory() {
     try {
@@ -391,15 +400,12 @@
     const pass = (el.passInput()?.value || "").trim();
     if (pass === PASSPHRASE) {
       const nameValue = (el.nameInput()?.value || "").trim();
-      const storedName = getUserName();
       if (nameValue) {
         setUserName(nameValue);
-      } else if (!storedName) {
-        alert("名前を入力してください。");
-        return;
       }
       setUnlocked();
       updateLockUI();
+      requestNameIfNeeded();
       if (!state.quiz.length) newQuiz();
     } else {
       alert("合言葉が違います。");
